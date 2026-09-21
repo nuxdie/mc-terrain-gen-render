@@ -1,5 +1,7 @@
 #include "spline.hpp"
 
+#include "density_math.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -23,41 +25,61 @@ SplinePtr spline(TerrainCoordinate coordinate, std::vector<Point> points) {
     return std::make_shared<CubicSpline>(coordinate, std::move(points));
 }
 
-float lerp(float amount, float from, float to) {
-    return from + amount * (to - from);
+// --- Mountain ridge geometry (TerrainProvider.mountainContinentalness) -----
+//
+// A mountain ridge maps the ridges coordinate onto a continentalness-like
+// height through a line whose slope and Y intercept both depend on
+// `modulation`. `kRidgeHeightScale` and `kRidgeHeightBias` place the ridges
+// axis onto that line; `kRiverFloor` is how far the curve may dip where rivers
+// are still allowed to cut through.
+
+constexpr float kRidgeHeightBias = 1.17F;
+constexpr float kRidgeHeightScale = 0.46082947F;
+constexpr float kRiverFloor = -0.2222F;
+constexpr float kAllowRiversBelow = -0.7F;
+
+struct MountainRidgeLine {
+    float slope{};
+    float intercept{};
+};
+
+MountainRidgeLine mountainRidgeLine(float modulation) {
+    return {1.0F - (1.0F - modulation) * 0.5F, 0.5F * (1.0F - modulation)};
 }
 
 float mountainContinentalness(float ridge, float modulation, float allowRiversBelow) {
-    const float ridgeSlope = 1.0F - (1.0F - modulation) * 0.5F;
-    const float ridgeIntersect = 0.5F * (1.0F - modulation);
-    const float adjustedRidgeHeight = (ridge + 1.17F) * 0.46082947F;
-    const float continentalness = adjustedRidgeHeight * ridgeSlope - ridgeIntersect;
+    const MountainRidgeLine line = mountainRidgeLine(modulation);
+    const float adjustedRidgeHeight = (ridge + kRidgeHeightBias) * kRidgeHeightScale;
+    const float continentalness = adjustedRidgeHeight * line.slope - line.intercept;
     return ridge < allowRiversBelow
-        ? std::max(continentalness, -0.2222F)
+        ? std::max(continentalness, kRiverFloor)
         : std::max(continentalness, 0.0F);
 }
 
+// The ridges value at which mountainContinentalness() crosses zero.
 float mountainRidgeZero(float modulation) {
-    const float ridgeSlope = 1.0F - (1.0F - modulation) * 0.5F;
-    const float ridgeIntersect = 0.5F * (1.0F - modulation);
-    return ridgeIntersect / (0.46082947F * ridgeSlope) - 1.17F;
+    const MountainRidgeLine line = mountainRidgeLine(modulation);
+    return line.intercept / (kRidgeHeightScale * line.slope) - kRidgeHeightBias;
 }
 
 float slope(float y1, float y2, float x1, float x2) {
     return (y2 - y1) / (x2 - x1);
 }
 
-SplinePtr buildMountainRidge(float modulation, bool saddle) {
-    const float minValue = mountainContinentalness(-1.0F, modulation, -0.7F);
-    const float maxValue = mountainContinentalness(1.0F, modulation, -0.7F);
+// Whether the ridge curve dips through a central saddle before rising again.
+enum class Saddle { Absent, Present };
+
+SplinePtr buildMountainRidge(float modulation, Saddle saddle) {
+    const float minValue = mountainContinentalness(-1.0F, modulation, kAllowRiversBelow);
+    const float maxValue = mountainContinentalness(1.0F, modulation, kAllowRiversBelow);
     const float zero = mountainRidgeZero(modulation);
     std::vector<Point> points;
 
     if (-0.65F < zero && zero < 1.0F) {
-        const float afterRiver = mountainContinentalness(-0.65F, modulation, -0.7F);
-        const float beforeRiver = mountainContinentalness(-0.75F, modulation, -0.7F);
+        const float afterRiver = mountainContinentalness(-0.65F, modulation, kAllowRiversBelow);
+        const float beforeRiver = mountainContinentalness(-0.75F, modulation, kAllowRiversBelow);
         const float minDerivative = slope(minValue, beforeRiver, -1.0F, -0.75F);
-        const float zeroValue = mountainContinentalness(zero, modulation, -0.7F);
+        const float zeroValue = mountainContinentalness(zero, modulation, kAllowRiversBelow);
         const float maxDerivative = slope(zeroValue, maxValue, zero, 1.0F);
         points = {
             constant(-1.0F, minValue, minDerivative),
@@ -69,7 +91,7 @@ SplinePtr buildMountainRidge(float modulation, bool saddle) {
         };
     } else {
         const float derivative = slope(minValue, maxValue, -1.0F, 1.0F);
-        if (saddle) {
+        if (saddle == Saddle::Present) {
             points.push_back(constant(-1.0F, std::max(0.2F, minValue)));
             points.push_back(constant(0.0F, lerp(0.5F, minValue, maxValue), derivative));
         } else {
@@ -80,6 +102,9 @@ SplinePtr buildMountainRidge(float modulation, bool saddle) {
     return spline(TerrainCoordinate::Ridges, std::move(points));
 }
 
+// Five control points sampled along the ridges axis, from river valleys at
+// -1 through to peaks at +1. Derivatives are chosen so the curve stays
+// monotone through the valley and flattens out towards the peaks.
 SplinePtr ridgeSpline(
     float valley,
     float low,
@@ -99,19 +124,31 @@ SplinePtr ridgeSpline(
     });
 }
 
-SplinePtr buildErosionOffset(
-    float lowValley,
-    float hill,
-    float tallHill,
-    float mountainFactor,
-    float plain,
-    float swamp,
-    bool includeExtremeHills,
-    bool saddle
-) {
-    const SplinePtr veryLow = buildMountainRidge(lerp(mountainFactor, 0.6F, 1.5F), saddle);
-    const SplinePtr low = buildMountainRidge(lerp(mountainFactor, 0.6F, 1.0F), saddle);
-    const SplinePtr mountains = buildMountainRidge(mountainFactor, saddle);
+// The offset spline's erosion layer. One of these is built per
+// continentalness band; the fields are the terrain heights that band reaches
+// at each erosion level, so a call site reads as a description of a landscape.
+struct ErosionOffset {
+    float lowValley{};
+    float hill{};
+    float tallHill{};
+    float mountainFactor{};
+    float plain{};
+    float swamp{};
+    bool includeExtremeHills{};
+    Saddle saddle{Saddle::Absent};
+};
+
+SplinePtr buildErosionOffset(const ErosionOffset& p) {
+    const float lowValley = p.lowValley;
+    const float hill = p.hill;
+    const float tallHill = p.tallHill;
+    const float mountainFactor = p.mountainFactor;
+    const float plain = p.plain;
+    const float swamp = p.swamp;
+
+    const SplinePtr veryLow = buildMountainRidge(lerp(mountainFactor, 0.6F, 1.5F), p.saddle);
+    const SplinePtr low = buildMountainRidge(lerp(mountainFactor, 0.6F, 1.0F), p.saddle);
+    const SplinePtr mountains = buildMountainRidge(mountainFactor, p.saddle);
     const SplinePtr widePlateau = ridgeSpline(
         lowValley - 0.15F,
         0.5F * mountainFactor,
@@ -144,7 +181,7 @@ SplinePtr buildErosionOffset(
         nested(-0.1F, narrowPlateau),
         nested(0.2F, plains),
     };
-    if (includeExtremeHills) {
+    if (p.includeExtremeHills) {
         points.push_back(nested(0.4F, plains));
         points.push_back(nested(0.45F, extreme));
         points.push_back(nested(0.55F, extreme));
@@ -155,10 +192,24 @@ SplinePtr buildErosionOffset(
 }
 
 SplinePtr buildOffsetSpline() {
-    const SplinePtr beach = buildErosionOffset(-0.15F, 0.0F, 0.0F, 0.1F, 0.0F, -0.03F, false, false);
-    const SplinePtr low = buildErosionOffset(-0.1F, 0.03F, 0.1F, 0.1F, 0.01F, -0.03F, false, false);
-    const SplinePtr mid = buildErosionOffset(-0.1F, 0.03F, 0.1F, 0.7F, 0.01F, -0.03F, true, true);
-    const SplinePtr high = buildErosionOffset(-0.05F, 0.03F, 0.1F, 1.0F, 0.01F, 0.01F, true, true);
+    // Four continentalness bands, from coastline to deep inland. Inland bands
+    // get taller mountains, extreme hills and a saddled ridge profile.
+    const SplinePtr beach = buildErosionOffset({
+        .lowValley = -0.15F, .hill = 0.0F, .tallHill = 0.0F, .mountainFactor = 0.1F,
+        .plain = 0.0F, .swamp = -0.03F, .includeExtremeHills = false, .saddle = Saddle::Absent,
+    });
+    const SplinePtr low = buildErosionOffset({
+        .lowValley = -0.1F, .hill = 0.03F, .tallHill = 0.1F, .mountainFactor = 0.1F,
+        .plain = 0.01F, .swamp = -0.03F, .includeExtremeHills = false, .saddle = Saddle::Absent,
+    });
+    const SplinePtr mid = buildErosionOffset({
+        .lowValley = -0.1F, .hill = 0.03F, .tallHill = 0.1F, .mountainFactor = 0.7F,
+        .plain = 0.01F, .swamp = -0.03F, .includeExtremeHills = true, .saddle = Saddle::Present,
+    });
+    const SplinePtr high = buildErosionOffset({
+        .lowValley = -0.05F, .hill = 0.03F, .tallHill = 0.1F, .mountainFactor = 1.0F,
+        .plain = 0.01F, .swamp = 0.01F, .includeExtremeHills = true, .saddle = Saddle::Present,
+    });
     return spline(TerrainCoordinate::Continentalness, {
         constant(-1.1F, 0.044F),
         constant(-1.02F, -0.2222F),
@@ -173,7 +224,11 @@ SplinePtr buildOffsetSpline() {
     });
 }
 
-SplinePtr buildErosionFactor(float baseValue, bool shattered) {
+// Shattered bands (windswept/savanna-like) replace the peak-and-extreme-hill
+// sub-splines with a much narrower ridge response.
+enum class Shattered { No, Yes };
+
+SplinePtr buildErosionFactor(float baseValue, Shattered shattered) {
     const SplinePtr base = spline(TerrainCoordinate::Weirdness, {
         constant(-0.2F, 6.3F),
         constant(0.2F, baseValue),
@@ -191,7 +246,7 @@ SplinePtr buildErosionFactor(float baseValue, bool shattered) {
         nested(0.03F, base),
     };
 
-    if (shattered) {
+    if (shattered == Shattered::Yes) {
         const SplinePtr shatteredWeirdness = spline(TerrainCoordinate::Weirdness, {
             constant(0.0F, baseValue), constant(0.1F, 0.625F),
         });
@@ -221,12 +276,19 @@ SplinePtr buildErosionFactor(float baseValue, bool shattered) {
 SplinePtr buildFactorSpline() {
     return spline(TerrainCoordinate::Continentalness, {
         constant(-0.19F, 3.95F),
-        nested(-0.15F, buildErosionFactor(6.25F, true)),
-        nested(-0.1F, buildErosionFactor(5.47F, true)),
-        nested(0.03F, buildErosionFactor(5.08F, true)),
-        nested(0.06F, buildErosionFactor(4.69F, false)),
+        nested(-0.15F, buildErosionFactor(6.25F, Shattered::Yes)),
+        nested(-0.1F, buildErosionFactor(5.47F, Shattered::Yes)),
+        nested(0.03F, buildErosionFactor(5.08F, Shattered::Yes)),
+        nested(0.06F, buildErosionFactor(4.69F, Shattered::No)),
     });
 }
+
+// --- Jaggedness ------------------------------------------------------------
+//
+// Jaggedness scales a high-frequency noise that is only applied near peaks, so
+// each layer below gates it further: continentalness -> erosion -> ridges ->
+// weirdness. A zero factor means "no jaggedness here" and is encoded as a
+// constant point rather than a nested spline.
 
 SplinePtr buildWeirdnessJaggedness(float factor) {
     return spline(TerrainCoordinate::Weirdness, {
@@ -236,8 +298,12 @@ SplinePtr buildWeirdnessJaggedness(float factor) {
 }
 
 SplinePtr buildRidgeJaggedness(float peakFactor, float highFactor) {
-    const float highStart = peaksAndValleys(0.4F);
-    const float highEnd = peaksAndValleys(0.56666666F);
+    // The window is expressed in weirdness and converted, so that it tracks
+    // peaksAndValleys() rather than duplicating its shape.
+    constexpr float kHighWeirdnessStart = 0.4F;
+    constexpr float kHighWeirdnessEnd = 0.56666666F;
+    const float highStart = peaksAndValleys(kHighWeirdnessStart);
+    const float highEnd = peaksAndValleys(kHighWeirdnessEnd);
     const float middle = (highStart + highEnd) * 0.5F;
     return spline(TerrainCoordinate::Ridges, {
         constant(highStart, 0.0F),
@@ -297,6 +363,8 @@ float CubicSpline::valueAt(const Point& point, const TerrainPoint& input) {
     return point.nested ? point.nested->sample(input) : point.value;
 }
 
+// Cubic Hermite interpolation between the bracketing control points, with
+// linear extrapolation along the end derivatives outside the point range.
 float CubicSpline::sample(const TerrainPoint& input) const {
     const float value = coordinate(input);
     if (value < points_.front().location) {
@@ -326,6 +394,9 @@ TerrainSplines buildStandardOverworldSplines() {
     return {buildOffsetSpline(), buildFactorSpline(), buildJaggednessSpline()};
 }
 
+// Folds weirdness into the "peaks and valleys" ridges coordinate: a triangle
+// wave over [-1, 1] that peaks at weirdness = +/-2/3 and bottoms out at 0
+// and +/-1, which is what turns a single noise into alternating ridges.
 float peaksAndValleys(float weirdness) {
     return -(std::abs(std::abs(weirdness) - 0.6666667F) - 0.33333334F) * 3.0F;
 }

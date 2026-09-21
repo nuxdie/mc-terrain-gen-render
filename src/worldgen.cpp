@@ -1,16 +1,33 @@
+// Step 7A of `minecraft-26.3-worldgen.dot`: the standard Overworld
+// NoiseRouter and final-density graph.
+//
+// The function names below follow the diagram's node names, and the code is
+// ordered to match the edges:
+//
+//   keyed noises -> shift -> climate -> terrain splines -> offset/factor/
+//   jaggedness -> initial density -> sloped cheese -> {entrances, underground}
+//   -> cave choice -> slides -> interpolate + squeeze -> min(.., noodle)
+//   -> + beardifier -> final density
+//
+// Every literal in this file comes from the vanilla Overworld NoiseSettings.
+// They are named rather than inlined because the only way to audit this port
+// against the Java source is constant by constant. Arithmetic is written to
+// match Java's evaluation order: these are floats, so re-associating a product
+// or widening an intermediate to double silently changes every world. If you
+// touch an expression here, re-run the golden-output comparison.
+
 #include "mcworld/worldgen.hpp"
 
+#include "density_math.hpp"
 #include "noise.hpp"
 #include "spline.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <functional>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <stdexcept>
-#include <limits>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -18,36 +35,176 @@
 namespace mcworld {
 namespace {
 
-float lerp(float amount, float from, float to) {
-    return from + amount * (to - from);
+using detail::clampedGradient;
+using detail::halfNegative;
+using detail::lerp;
+using detail::mapNoise;
+using detail::quarterNegative;
+using detail::remap;
+using detail::squeeze;
+
+// --- World geometry --------------------------------------------------------
+
+constexpr double kWorldMinY = -64.0;
+constexpr double kWorldMaxY = 320.0;
+
+// The density graph is evaluated on a coarse lattice and interpolated: 4 blocks
+// horizontally by 8 vertically, matching NoiseChunk's cell size. Preliminary
+// surface levels are computed per 16x16 column and interpolated the same way.
+constexpr int kCellWidth = 4;
+constexpr int kCellHeight = 8;
+constexpr int kColumnSpacing = 16;
+
+// --- Range choice ----------------------------------------------------------
+
+// Java's DensityFunctions.rangeChoice uses an explicit lower bound of -1e6 to
+// mean "effectively unbounded below". Both uses in this graph keep that bound
+// verbatim, so a NaN input falls through to the out-of-range branch.
+constexpr float kRangeChoiceFloor = -1000000.0F;
+
+[[nodiscard]] bool inRangeChoice(float value, float exclusiveMax) {
+    return value >= kRangeChoiceFloor && value < exclusiveMax;
 }
 
-float clampedGradient(double value, double fromY, double toY, float fromValue, float toValue) {
-    const float amount = static_cast<float>(std::clamp((value - fromY) / (toY - fromY), 0.0, 1.0));
-    return lerp(amount, fromValue, toValue);
+// --- Climate ---------------------------------------------------------------
+
+// Climate noises are sampled at quarter resolution, at a position displaced by
+// the shift noise, which is what breaks up the otherwise axis-aligned biome
+// bands. Java: ShiftedNoise with shiftX/shiftZ and xzScale = 0.25.
+constexpr double kClimateScale = 0.25;
+constexpr float kShiftMultiplier = 4.0F;
+
+// --- Terrain: offset, factor, jaggedness -----------------------------------
+
+// Sea level sits at density zero, so the offset spline is biased down by
+// slightly more than half. Java: add(-0.50375, offsetSpline).
+constexpr float kOffsetBias = -0.50375F;
+
+// Depth ramps linearly from solid at the bottom of the world to air at the top,
+// before the offset spline displaces it.
+constexpr float kDepthAtWorldBottom = 1.5F;
+constexpr float kDepthAtWorldTop = -1.5F;
+
+// Where terrain blending is inactive (alpha = 1) these are the values the
+// blended-in side contributes; they only matter for upgraded worlds.
+constexpr float kUnblendedFactor = 10.0F;
+constexpr float kUnblendedJaggedness = 0.0F;
+
+// Jaggedness noise is sampled at very high frequency so it varies block to
+// block, and only its positive half is applied at full strength.
+constexpr double kJaggedNoiseScale = 1500.0;
+
+// Java: noiseGradientDensity(factor, depth) = 4 * quarterNegative(factor*depth).
+constexpr float kGradientDensityScale = 4.0F;
+
+[[nodiscard]] float noiseGradientDensity(float factor, float depth) {
+    return kGradientDensityScale * quarterNegative(factor * depth);
 }
 
-float remap(float value, float fromLow, float fromHigh, float toLow, float toHigh) {
-    return toLow + (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow);
-}
+// --- Spaghetti roughness ---------------------------------------------------
 
-float mapNoise(float value, float low, float high) {
-    return value * (high - low) * 0.5F + (high + low) * 0.5F;
-}
+constexpr float kRoughnessModulatorLow = 0.0F;
+constexpr float kRoughnessModulatorHigh = -0.1F;
+constexpr float kRoughnessBias = -0.4F;
 
-float halfNegative(float value) {
-    return value > 0.0F ? value : value * 0.5F;
-}
+// --- Cave entrances (surface branch) ---------------------------------------
 
-float quarterNegative(float value) {
-    return value > 0.0F ? value : value * 0.25F;
-}
+constexpr double kSpaghetti3dRarityScaleXz = 2.0;
+constexpr float kSpaghetti3dThicknessLow = -0.065F;
+constexpr float kSpaghetti3dThicknessHigh = -0.088F;
+constexpr double kCaveEntranceScaleXz = 0.75;
+constexpr double kCaveEntranceScaleY = 0.5;
+constexpr float kCaveEntranceBias = 0.37F;
+// Entrances are widened near the surface so cave mouths actually break through.
+constexpr double kEntranceTaperFromY = -10.0;
+constexpr double kEntranceTaperToY = 30.0;
+constexpr float kEntranceTaperAmount = 0.3F;
 
-float squeeze(float value) {
-    const float clamped = std::clamp(value, -1.0F, 1.0F);
-    return clamped * 0.5F - clamped * clamped * clamped / 24.0F;
-}
+// --- Spaghetti 2-D (underground branch) ------------------------------------
 
+constexpr double kSpaghetti2dRarityScaleXz = 2.0;
+constexpr float kSpaghetti2dElevationLow = -8.0F;
+constexpr float kSpaghetti2dElevationHigh = 8.0F;
+constexpr float kSpaghetti2dThicknessLow = -0.6F;
+constexpr float kSpaghetti2dThicknessHigh = -1.3F;
+// The 2-D tunnels follow a sloping plane through the world rather than a
+// constant Y, which is what gives them their long horizontal runs.
+constexpr float kSpaghetti2dSlopeAtBottom = 8.0F;
+constexpr float kSpaghetti2dSlopeAtTop = -40.0F;
+constexpr float kSpaghetti2dThicknessWeight = 0.083F;
+
+// --- Pillars ---------------------------------------------------------------
+
+constexpr double kPillarScaleXz = 25.0;
+constexpr double kPillarScaleY = 0.3;
+constexpr float kPillarRarenessLow = 0.0F;
+constexpr float kPillarRarenessHigh = -2.0F;
+constexpr float kPillarThicknessLow = 0.0F;
+constexpr float kPillarThicknessHigh = 1.1F;
+constexpr float kPillarScale = 2.0F;
+// Below this the pillar branch drops out entirely instead of denting the cave.
+constexpr float kPillarCutoff = 0.03F;
+
+// --- Cave layers and cheese ------------------------------------------------
+
+constexpr double kCaveLayerScaleY = 8.0;
+constexpr float kCaveLayerScale = 4.0F;
+constexpr double kCaveCheeseScaleY = 2.0 / 3.0;
+constexpr float kCaveCheeseBias = 0.27F;
+// Cheese caves are suppressed as terrain thins out towards the surface.
+constexpr float kCheeseSurfaceGuardBias = 1.5F;
+constexpr float kCheeseSurfaceGuardSlope = 0.64F;
+constexpr float kCheeseSurfaceGuardMax = 0.5F;
+
+// --- Cave choice -----------------------------------------------------------
+
+// Above this sloped-cheese value the column is deep enough inside terrain to
+// use the full underground cave graph; below it only entrances are carved.
+constexpr float kUndergroundThreshold = 1.5625F;
+constexpr float kSurfaceEntranceScale = 5.0F;
+
+// --- Slides ----------------------------------------------------------------
+
+// Force air towards the build limit and bedrock towards the world floor.
+constexpr double kTopSlideFromY = 240.0;
+constexpr double kTopSlideToY = 256.0;
+constexpr float kTopSlideTarget = -0.078125F;
+constexpr double kBottomSlideFromY = kWorldMinY;
+constexpr double kBottomSlideToY = -40.0;
+constexpr float kBottomSlideTarget = 0.1171875F;
+
+// --- Post-processing -------------------------------------------------------
+
+constexpr float kPostProcessScale = 0.64F;
+
+// --- Noodle caves ----------------------------------------------------------
+
+// Noodles exist only in this Y band; outside it the toggle is forced negative,
+// which selects the "no noodle" branch of the range choice.
+constexpr int kNoodleMinY = -60;
+constexpr int kNoodleMaxY = 320;
+constexpr float kNoodleToggleOff = -1.0F;
+constexpr float kNoodleAbsent = 64.0F;
+constexpr float kNoodleThicknessLow = -0.05F;
+constexpr float kNoodleThicknessHigh = -0.1F;
+constexpr double kNoodleRidgeScale = 8.0 / 3.0;
+constexpr float kNoodleRidgeWeight = 1.5F;
+
+// --- Preliminary surface ---------------------------------------------------
+
+// Solves the gradient-density equation for the Y where terrain would reach the
+// surface, then walks down one cell at a time until the slid density is solid.
+constexpr float kSurfaceProbeNumerator = 0.2734375F;
+constexpr float kSurfaceProbeFloorY = -40.0F;
+constexpr float kSurfaceProbeBias = -0.703125F;
+constexpr float kSurfaceProbeClamp = 64.0F;
+constexpr float kSurfaceSolidThreshold = 0.390625F;
+
+// --- Grid helpers ----------------------------------------------------------
+
+// Snap down to the lattice, rejecting coordinates that cannot be represented.
+// This is the single chokepoint that turns non-finite or absurd inputs into
+// std::invalid_argument before any noise or cache is touched.
 int floorToGrid(double value, int spacing) {
     const double grid = std::floor(value / spacing) * spacing;
     if (!std::isfinite(grid) || grid < std::numeric_limits<int>::min()
@@ -55,6 +212,10 @@ int floorToGrid(double value, int spacing) {
         throw std::invalid_argument("Sample coordinate is outside the supported integer grid");
     }
     return static_cast<int>(grid);
+}
+
+void requireOnGrid(double value, int spacing) {
+    (void)floorToGrid(value, spacing);
 }
 
 struct GridKey {
@@ -92,6 +253,207 @@ struct ColumnKeyHash {
     }
 };
 
+// The four correlated noodle-cave values, interpolated together so that the
+// toggle and the ridges it gates stay consistent within a cell.
+struct NoodleSample {
+    float toggle{};
+    float thickness{};
+    float ridgeA{};
+    float ridgeB{};
+};
+
+[[nodiscard]] float blendSamples(float amount, float from, float to) {
+    return lerp(amount, from, to);
+}
+
+[[nodiscard]] NoodleSample blendSamples(float amount, const NoodleSample& from, const NoodleSample& to) {
+    return {
+        lerp(amount, from.toggle, to.toggle),
+        lerp(amount, from.thickness, to.thickness),
+        lerp(amount, from.ridgeA, to.ridgeA),
+        lerp(amount, from.ridgeB, to.ridgeB),
+    };
+}
+
+// Evaluates a sampler only at the corners of a coarse lattice cell and
+// trilinearly interpolates in between, memoizing corners across calls. This is
+// both the performance story and part of the output: the interpolation is what
+// gives Minecraft terrain its characteristic cell-sized smoothness, so the
+// lattice spacing is not a tunable.
+template <typename Value>
+class LatticeCache {
+public:
+    LatticeCache(int xzSpacing, int ySpacing) : xzSpacing_(xzSpacing), ySpacing_(ySpacing) {}
+
+    template <typename Sampler>
+    [[nodiscard]] Value sample(double x, double y, double z, Sampler&& sampler) {
+        const int x0 = floorToGrid(x, xzSpacing_);
+        const int y0 = floorToGrid(y, ySpacing_);
+        const int z0 = floorToGrid(z, xzSpacing_);
+        const int x1 = x0 + xzSpacing_;
+        const int y1 = y0 + ySpacing_;
+        const int z1 = z0 + xzSpacing_;
+        const float tx = static_cast<float>((x - x0) / xzSpacing_);
+        const float ty = static_cast<float>((y - y0) / ySpacing_);
+        const float tz = static_cast<float>((z - z0) / xzSpacing_);
+
+        const auto corner = [&](int sx, int sy, int sz) -> Value {
+            const GridKey key{sx, sy, sz};
+            const auto found = values_.find(key);
+            if (found != values_.end()) {
+                return found->second;
+            }
+            const Value sampled = sampler(sx, sy, sz);
+            values_.emplace(key, sampled);
+            return sampled;
+        };
+
+        // Corners are bound to locals first: argument evaluation order is
+        // unspecified, and keeping the sampler's call order fixed keeps the
+        // cache-fill sequence reproducible.
+        const Value c000 = corner(x0, y0, z0);
+        const Value c100 = corner(x1, y0, z0);
+        const Value c010 = corner(x0, y1, z0);
+        const Value c110 = corner(x1, y1, z0);
+        const Value c001 = corner(x0, y0, z1);
+        const Value c101 = corner(x1, y0, z1);
+        const Value c011 = corner(x0, y1, z1);
+        const Value c111 = corner(x1, y1, z1);
+
+        const Value zLowYLow = blendSamples(tx, c000, c100);
+        const Value zLowYHigh = blendSamples(tx, c010, c110);
+        const Value zHighYLow = blendSamples(tx, c001, c101);
+        const Value zHighYHigh = blendSamples(tx, c011, c111);
+        return blendSamples(
+            tz,
+            blendSamples(ty, zLowYLow, zLowYHigh),
+            blendSamples(ty, zHighYLow, zHighYHigh)
+        );
+    }
+
+private:
+    int xzSpacing_;
+    int ySpacing_;
+    std::unordered_map<GridKey, Value, GridKeyHash> values_;
+};
+
+// The 2-D equivalent, for values that vary only per column.
+class ColumnCache {
+public:
+    explicit ColumnCache(int spacing) : spacing_(spacing) {}
+
+    template <typename Sampler>
+    [[nodiscard]] float sample(double x, double z, Sampler&& sampler) {
+        const int x0 = floorToGrid(x, spacing_);
+        const int z0 = floorToGrid(z, spacing_);
+        const float tx = static_cast<float>((x - x0) / spacing_);
+        const float tz = static_cast<float>((z - z0) / spacing_);
+
+        const auto corner = [&](int sx, int sz) {
+            const ColumnKey key{sx, sz};
+            const auto found = values_.find(key);
+            if (found != values_.end()) {
+                return found->second;
+            }
+            const float value = sampler(sx, sz);
+            values_.emplace(key, value);
+            return value;
+        };
+
+        const float c00 = corner(x0, z0);
+        const float c10 = corner(x0 + spacing_, z0);
+        const float c01 = corner(x0, z0 + spacing_);
+        const float c11 = corner(x0 + spacing_, z0 + spacing_);
+        return lerp(tz, lerp(tx, c00, c10), lerp(tx, c01, c11));
+    }
+
+private:
+    int spacing_;
+    std::unordered_map<ColumnKey, float, ColumnKeyHash> values_;
+};
+
+// --- Keyed noise streams ---------------------------------------------------
+//
+// Grouped by the stage of the graph that consumes them. Each entry is
+// (resource key, first octave, amplitude per octave); the key is what seeds the
+// stream, so renaming one reshuffles that noise for every existing world.
+
+struct ClimateNoises {
+    explicit ClimateNoises(std::int64_t seed)
+        : shift(seed, "minecraft:offset", -3, {1, 1, 1, 0}),
+          temperature(seed, "minecraft:temperature", -10, {1.5, 0, 1, 0, 0, 0}),
+          vegetation(seed, "minecraft:vegetation", -8, {1, 1, 0, 0, 0, 0}),
+          continentalness(seed, "minecraft:continentalness", -9, {1, 1, 2, 2, 2, 1, 1, 1, 1}),
+          erosion(seed, "minecraft:erosion", -9, {1, 1, 0, 1, 1}),
+          ridge(seed, "minecraft:ridge", -7, {1, 2, 1, 0, 0, 0}),
+          jagged(seed, "minecraft:jagged", -16, std::vector<double>(16, 1.0)) {}
+
+    detail::NormalNoise shift;
+    detail::NormalNoise temperature;
+    detail::NormalNoise vegetation;
+    detail::NormalNoise continentalness;
+    detail::NormalNoise erosion;
+    detail::NormalNoise ridge;
+    detail::NormalNoise jagged;
+};
+
+// Surface cave entrances. The roughness pair is also consumed by the
+// underground branch, which mixes it into the 2-D spaghetti tunnels.
+struct EntranceNoises {
+    explicit EntranceNoises(std::int64_t seed)
+        : roughness(seed, "minecraft:spaghetti_roughness", -5, {1}),
+          roughnessModulator(seed, "minecraft:spaghetti_roughness_modulator", -8, {1}),
+          spaghetti3dA(seed, "minecraft:spaghetti_3d_1", -7, {1}),
+          spaghetti3dB(seed, "minecraft:spaghetti_3d_2", -7, {1}),
+          spaghetti3dRarity(seed, "minecraft:spaghetti_3d_rarity", -11, {1}),
+          spaghetti3dThickness(seed, "minecraft:spaghetti_3d_thickness", -8, {1}),
+          caveEntrance(seed, "minecraft:cave_entrance", -7, {0.4, 0.5, 1}) {}
+
+    detail::NormalNoise roughness;
+    detail::NormalNoise roughnessModulator;
+    detail::NormalNoise spaghetti3dA;
+    detail::NormalNoise spaghetti3dB;
+    detail::NormalNoise spaghetti3dRarity;
+    detail::NormalNoise spaghetti3dThickness;
+    detail::NormalNoise caveEntrance;
+};
+
+struct UndergroundNoises {
+    explicit UndergroundNoises(std::int64_t seed)
+        : spaghetti2d(seed, "minecraft:spaghetti_2d", -7, {1}),
+          spaghetti2dElevation(seed, "minecraft:spaghetti_2d_elevation", -8, {1}),
+          spaghetti2dModulator(seed, "minecraft:spaghetti_2d_modulator", -11, {1}),
+          spaghetti2dThickness(seed, "minecraft:spaghetti_2d_thickness", -11, {1}),
+          caveLayer(seed, "minecraft:cave_layer", -8, {1}),
+          caveCheese(seed, "minecraft:cave_cheese", -8, {0.5, 1, 2, 1, 2, 1, 0, 2, 0}),
+          pillar(seed, "minecraft:pillar", -7, {1, 1}),
+          pillarRareness(seed, "minecraft:pillar_rareness", -8, {1}),
+          pillarThickness(seed, "minecraft:pillar_thickness", -8, {1}) {}
+
+    detail::NormalNoise spaghetti2d;
+    detail::NormalNoise spaghetti2dElevation;
+    detail::NormalNoise spaghetti2dModulator;
+    detail::NormalNoise spaghetti2dThickness;
+    detail::NormalNoise caveLayer;
+    detail::NormalNoise caveCheese;
+    detail::NormalNoise pillar;
+    detail::NormalNoise pillarRareness;
+    detail::NormalNoise pillarThickness;
+};
+
+struct NoodleNoises {
+    explicit NoodleNoises(std::int64_t seed)
+        : toggle(seed, "minecraft:noodle", -8, {1}),
+          thickness(seed, "minecraft:noodle_thickness", -8, {1}),
+          ridgeA(seed, "minecraft:noodle_ridge_a", -7, {1}),
+          ridgeB(seed, "minecraft:noodle_ridge_b", -7, {1}) {}
+
+    detail::NormalNoise toggle;
+    detail::NormalNoise thickness;
+    detail::NormalNoise ridgeA;
+    detail::NormalNoise ridgeB;
+};
+
 class IdentityBlendSampler final : public BlendSampler {};
 class EmptyBeardifier final : public Beardifier {};
 
@@ -124,33 +486,10 @@ public:
           blender_(blender ? std::move(blender) : std::make_shared<IdentityBlendSampler>()),
           beardifier_(beardifier ? std::move(beardifier) : std::make_shared<EmptyBeardifier>()),
           splines_(detail::buildStandardOverworldSplines()),
-          shift_(seed, "minecraft:offset", -3, {1, 1, 1, 0}),
-          temperature_(seed, "minecraft:temperature", -10, {1.5, 0, 1, 0, 0, 0}),
-          vegetation_(seed, "minecraft:vegetation", -8, {1, 1, 0, 0, 0, 0}),
-          continentalness_(seed, "minecraft:continentalness", -9, {1, 1, 2, 2, 2, 1, 1, 1, 1}),
-          erosion_(seed, "minecraft:erosion", -9, {1, 1, 0, 1, 1}),
-          ridge_(seed, "minecraft:ridge", -7, {1, 2, 1, 0, 0, 0}),
-          jagged_(seed, "minecraft:jagged", -16, std::vector<double>(16, 1.0)),
-          roughness_(seed, "minecraft:spaghetti_roughness", -5, {1}),
-          roughnessModulator_(seed, "minecraft:spaghetti_roughness_modulator", -8, {1}),
-          spaghetti3dA_(seed, "minecraft:spaghetti_3d_1", -7, {1}),
-          spaghetti3dB_(seed, "minecraft:spaghetti_3d_2", -7, {1}),
-          spaghetti3dRarity_(seed, "minecraft:spaghetti_3d_rarity", -11, {1}),
-          spaghetti3dThickness_(seed, "minecraft:spaghetti_3d_thickness", -8, {1}),
-          caveEntrance_(seed, "minecraft:cave_entrance", -7, {0.4, 0.5, 1}),
-          spaghetti2d_(seed, "minecraft:spaghetti_2d", -7, {1}),
-          spaghetti2dElevation_(seed, "minecraft:spaghetti_2d_elevation", -8, {1}),
-          spaghetti2dModulator_(seed, "minecraft:spaghetti_2d_modulator", -11, {1}),
-          spaghetti2dThickness_(seed, "minecraft:spaghetti_2d_thickness", -11, {1}),
-          caveLayer_(seed, "minecraft:cave_layer", -8, {1}),
-          caveCheese_(seed, "minecraft:cave_cheese", -8, {0.5, 1, 2, 1, 2, 1, 0, 2, 0}),
-          pillar_(seed, "minecraft:pillar", -7, {1, 1}),
-          pillarRareness_(seed, "minecraft:pillar_rareness", -8, {1}),
-          pillarThickness_(seed, "minecraft:pillar_thickness", -8, {1}),
-          noodle_(seed, "minecraft:noodle", -8, {1}),
-          noodleThickness_(seed, "minecraft:noodle_thickness", -8, {1}),
-          noodleRidgeA_(seed, "minecraft:noodle_ridge_a", -7, {1}),
-          noodleRidgeB_(seed, "minecraft:noodle_ridge_b", -7, {1}),
+          climateNoises_(seed),
+          entranceNoises_(seed),
+          undergroundNoises_(seed),
+          noodleNoises_(seed),
           blendedNoise_(seed) {}
 
     [[nodiscard]] std::int64_t seed() const noexcept {
@@ -158,30 +497,38 @@ public:
     }
 
     [[nodiscard]] RouterSample sample(double x, double y, double z) const {
-        // Validate before evaluating any noise or spline with user coordinates.
-        (void)floorToGrid(x, 16);
-        (void)floorToGrid(y, 8);
-        (void)floorToGrid(z, 16);
+        // Validate before evaluating any noise or spline with user coordinates,
+        // against the coarsest lattices this call will touch. sampleFinalDensity
+        // validates separately, against the finer density lattice, so calling it
+        // directly accepts a slightly wider coordinate range near INT_MAX.
+        requireOnGrid(x, kColumnSpacing);
+        requireOnGrid(y, kCellHeight);
+        requireOnGrid(z, kColumnSpacing);
+
         const Climate climate = sampleClimate(x, z);
         const Terrain terrain = sampleTerrain(x, y, z, climate);
+
         RouterSample result;
-        result.temperature = shiftedNoise(temperature_, x, z);
-        result.vegetation = shiftedNoise(vegetation_, x, z);
+        result.temperature = shiftedNoise(climateNoises_.temperature, x, z);
+        result.vegetation = shiftedNoise(climateNoises_.vegetation, x, z);
         result.continentalness = climate.continentalness;
         result.erosion = climate.erosion;
         result.depth = terrain.depth;
+        // The router exposes the raw ridge noise: peaksAndValleys() is applied
+        // downstream, inside the terrain splines.
         result.ridges = climate.weirdness;
         result.chunkSurfaceLevel = sampleChunkSurfaceLevel(x, z);
         result.finalDensity = sampleFinalDensity(x, y, z);
         return result;
     }
 
+    // final_density = min(post-processed caves, noodle) + beardifier
     [[nodiscard]] float sampleFinalDensity(double x, double y, double z) const {
         const float post = squeeze(interpolatePost(x, y, z));
-        const std::array<float, 4> noodleValues = interpolateNoodle(x, y, z);
-        const float noodle = noodleValues[0] >= -1000000.0F && noodleValues[0] < 0.0F
-            ? 64.0F
-            : noodleValues[1] + 1.5F * std::max(std::abs(noodleValues[2]), std::abs(noodleValues[3]));
+        const NoodleSample n = interpolateNoodle(x, y, z);
+        const float noodle = inRangeChoice(n.toggle, 0.0F)
+            ? kNoodleAbsent
+            : n.thickness + kNoodleRidgeWeight * std::max(std::abs(n.ridgeA), std::abs(n.ridgeB));
         return std::min(post, noodle) + beardifier_->sample(x, y, z);
     }
 
@@ -190,31 +537,35 @@ private:
         float continentalness{};
         float erosion{};
         float weirdness{};
-        float ridges{};
+        float ridges{}; // peaksAndValleys(weirdness)
     };
 
     struct Terrain {
         float offset{};
         float factor{};
         float depth{};
-        float jaggedness{};
         float slopedCheese{};
     };
 
+    // --- Climate -----------------------------------------------------------
+
     [[nodiscard]] float shiftedNoise(const detail::NormalNoise& noise, double x, double z) const {
-        const float shiftX = 4.0F * shift_.sample(x * 0.25, 0.0, z * 0.25);
-        const float shiftZ = 4.0F * shift_.sample(z * 0.25, x * 0.25, 0.0);
-        return noise.sample(x * 0.25 + shiftX, 0.0, z * 0.25 + shiftZ);
+        const detail::NormalNoise& shift = climateNoises_.shift;
+        const float shiftX = kShiftMultiplier * shift.sample(x * kClimateScale, 0.0, z * kClimateScale);
+        const float shiftZ = kShiftMultiplier * shift.sample(z * kClimateScale, x * kClimateScale, 0.0);
+        return noise.sample(x * kClimateScale + shiftX, 0.0, z * kClimateScale + shiftZ);
     }
 
     [[nodiscard]] Climate sampleClimate(double x, double z) const {
         Climate climate;
-        climate.continentalness = shiftedNoise(continentalness_, x, z);
-        climate.erosion = shiftedNoise(erosion_, x, z);
-        climate.weirdness = shiftedNoise(ridge_, x, z);
+        climate.continentalness = shiftedNoise(climateNoises_.continentalness, x, z);
+        climate.erosion = shiftedNoise(climateNoises_.erosion, x, z);
+        climate.weirdness = shiftedNoise(climateNoises_.ridge, x, z);
         climate.ridges = detail::peaksAndValleys(climate.weirdness);
         return climate;
     }
+
+    // --- Terrain splines -> sloped cheese ----------------------------------
 
     [[nodiscard]] Terrain sampleTerrain(double x, double y, double z, const Climate& climate) const {
         const detail::TerrainPoint splinePoint{
@@ -223,24 +574,41 @@ private:
             climate.weirdness,
             climate.ridges,
         };
+
+        // alpha = 1 means "no old-world blending here", which is the only case
+        // the default BlendSampler produces.
         const float alpha = blender_->alpha(x, y, z);
-        const float rawOffset = -0.50375F + splines_.offset->sample(splinePoint);
+        const float rawOffset = kOffsetBias + splines_.offset->sample(splinePoint);
         const float offset = lerp(alpha, blender_->offset(x, y, z), rawOffset);
-        const float factor = lerp(alpha, 10.0F, splines_.factor->sample(splinePoint));
-        const float unscaledJaggedness = lerp(alpha, 0.0F, splines_.jaggedness->sample(splinePoint));
-        const float jaggedNoise = jagged_.sample(x * 1500.0, 0.0, z * 1500.0);
+        const float factor = lerp(alpha, kUnblendedFactor, splines_.factor->sample(splinePoint));
+        const float unscaledJaggedness =
+            lerp(alpha, kUnblendedJaggedness, splines_.jaggedness->sample(splinePoint));
+
+        const float jaggedNoise =
+            climateNoises_.jagged.sample(x * kJaggedNoiseScale, 0.0, z * kJaggedNoiseScale);
         const float jaggedness = unscaledJaggedness * halfNegative(jaggedNoise);
-        const float depth = clampedGradient(y, -64.0, 320.0, 1.5F, -1.5F) + offset;
-        const float initialDensity = 4.0F * quarterNegative(factor * (depth + jaggedness));
+
+        const float depth =
+            clampedGradient(y, kWorldMinY, kWorldMaxY, kDepthAtWorldBottom, kDepthAtWorldTop) + offset;
+        const float initialDensity = noiseGradientDensity(factor, depth + jaggedness);
         const float slopedCheese = initialDensity + blendedNoise_.sample(x, y, z);
-        return {offset, factor, depth, jaggedness, slopedCheese};
+        return {offset, factor, depth, slopedCheese};
     }
+
+    // --- Cave entrances (surface branch) -----------------------------------
 
     [[nodiscard]] float spaghettiRoughness(double x, double y, double z) const {
-        const float modulator = mapNoise(roughnessModulator_.sample(x, y, z), 0.0F, -0.1F);
-        return modulator * (std::abs(roughness_.sample(x, y, z)) - 0.4F);
+        const float modulator = mapNoise(
+            entranceNoises_.roughnessModulator.sample(x, y, z),
+            kRoughnessModulatorLow,
+            kRoughnessModulatorHigh
+        );
+        return modulator * (std::abs(entranceNoises_.roughness.sample(x, y, z)) + kRoughnessBias);
     }
 
+    // Step functions that widen or narrow the spaghetti tunnels in bands.
+    // Java models these as cubic splines; the vanilla control points are flat,
+    // so they reduce exactly to these steps.
     [[nodiscard]] static float rarity3d(float value) {
         if (value < -0.5F) return 0.75F;
         if (value < 0.0F) return 1.0F;
@@ -258,41 +626,85 @@ private:
 
     [[nodiscard]] float entrance(double x, double y, double z) const {
         const float roughness = spaghettiRoughness(x, y, z);
-        const float rarity = rarity3d(spaghetti3dRarity_.sample(x * 2.0, y, z * 2.0));
-        const float caveA = std::abs(rarity * spaghetti3dA_.sample(x / rarity, y / rarity, z / rarity));
-        const float caveB = std::abs(rarity * spaghetti3dB_.sample(x / rarity, y / rarity, z / rarity));
-        const float thickness = mapNoise(spaghetti3dThickness_.sample(x, y, z), -0.065F, -0.088F);
+
+        // Two decorrelated noises are folded to |n|, so each one contributes a
+        // tube where it crosses zero; taking the max intersects them into a
+        // connected tunnel network. Rarity rescales the sampling position, so
+        // the same noise yields wider or narrower tunnels per region.
+        const float rarity = rarity3d(entranceNoises_.spaghetti3dRarity.sample(
+            x * kSpaghetti3dRarityScaleXz, y, z * kSpaghetti3dRarityScaleXz
+        ));
+        const float caveA =
+            std::abs(rarity * entranceNoises_.spaghetti3dA.sample(x / rarity, y / rarity, z / rarity));
+        const float caveB =
+            std::abs(rarity * entranceNoises_.spaghetti3dB.sample(x / rarity, y / rarity, z / rarity));
+        const float thickness = mapNoise(
+            entranceNoises_.spaghetti3dThickness.sample(x, y, z),
+            kSpaghetti3dThicknessLow,
+            kSpaghetti3dThicknessHigh
+        );
         const float spaghetti = std::clamp(std::max(caveA, caveB) + thickness, -1.0F, 1.0F);
-        const float bigEntrance = caveEntrance_.sample(x * 0.75, y * 0.5, z * 0.75)
-            + 0.37F
-            + clampedGradient(y, -10.0, 30.0, 0.3F, 0.0F);
+
+        const float bigEntrance = entranceNoises_.caveEntrance.sample(
+                x * kCaveEntranceScaleXz, y * kCaveEntranceScaleY, z * kCaveEntranceScaleXz
+            )
+            + kCaveEntranceBias
+            + clampedGradient(y, kEntranceTaperFromY, kEntranceTaperToY, kEntranceTaperAmount, 0.0F);
+
         return std::min(bigEntrance, roughness + spaghetti);
     }
 
+    // --- Underground caves -------------------------------------------------
+
     [[nodiscard]] float spaghetti2d(double x, double y, double z) const {
-        const float rarity = rarity2d(spaghetti2dModulator_.sample(x * 2.0, y, z * 2.0));
-        const float cave = std::abs(rarity * spaghetti2d_.sample(x / rarity, y / rarity, z / rarity));
-        const float elevation = mapNoise(spaghetti2dElevation_.sample(x, 0.0, z), -8.0F, 8.0F);
-        const float thickness = mapNoise(spaghetti2dThickness_.sample(x * 2.0, y, z * 2.0), -0.6F, -1.3F);
-        const float slope = std::abs(elevation + clampedGradient(y, -64.0, 320.0, 8.0F, -40.0F));
+        const float rarity = rarity2d(undergroundNoises_.spaghetti2dModulator.sample(
+            x * kSpaghetti2dRarityScaleXz, y, z * kSpaghetti2dRarityScaleXz
+        ));
+        const float cave =
+            std::abs(rarity * undergroundNoises_.spaghetti2d.sample(x / rarity, y / rarity, z / rarity));
+        const float elevation = mapNoise(
+            undergroundNoises_.spaghetti2dElevation.sample(x, 0.0, z),
+            kSpaghetti2dElevationLow,
+            kSpaghetti2dElevationHigh
+        );
+        const float thickness = mapNoise(
+            undergroundNoises_.spaghetti2dThickness.sample(
+                x * kSpaghetti2dRarityScaleXz, y, z * kSpaghetti2dRarityScaleXz
+            ),
+            kSpaghetti2dThicknessLow,
+            kSpaghetti2dThicknessHigh
+        );
+
+        // Distance from the sloping tunnel plane, cubed so the tunnels stay
+        // thin but their walls fall away quickly.
+        const float slope = std::abs(elevation
+            + clampedGradient(y, kWorldMinY, kWorldMaxY, kSpaghetti2dSlopeAtBottom, kSpaghetti2dSlopeAtTop));
         const float layer = std::pow(slope + thickness, 3.0F);
-        return std::clamp(std::max(cave + 0.083F * thickness, layer), -1.0F, 1.0F);
+
+        return std::clamp(std::max(cave + kSpaghetti2dThicknessWeight * thickness, layer), -1.0F, 1.0F);
     }
 
     [[nodiscard]] float pillars(double x, double y, double z) const {
         const float raw = (
-            2.0F * pillar_.sample(x * 25.0, y * 0.3, z * 25.0)
-            + mapNoise(pillarRareness_.sample(x, y, z), 0.0F, -2.0F)
-        ) * std::pow(mapNoise(pillarThickness_.sample(x, y, z), 0.0F, 1.1F), 3.0F);
-        return raw >= 0.03F ? raw : -1000000.0F;
+            kPillarScale * undergroundNoises_.pillar.sample(x * kPillarScaleXz, y * kPillarScaleY, z * kPillarScaleXz)
+            + mapNoise(undergroundNoises_.pillarRareness.sample(x, y, z), kPillarRarenessLow, kPillarRarenessHigh)
+        ) * std::pow(
+            mapNoise(undergroundNoises_.pillarThickness.sample(x, y, z), kPillarThicknessLow, kPillarThicknessHigh),
+            3.0F
+        );
+        return raw >= kPillarCutoff ? raw : kRangeChoiceFloor;
     }
 
     [[nodiscard]] float underground(double x, double y, double z, float slopedCheese, float entrances) const {
-        const float layerNoise = caveLayer_.sample(x, y * 8.0, z);
-        const float layer = 4.0F * layerNoise * layerNoise;
-        const float cheese = std::clamp(caveCheese_.sample(x, y * (2.0 / 3.0), z) + 0.27F, -1.0F, 1.0F)
-            + std::clamp(1.5F - 0.64F * slopedCheese, 0.0F, 0.5F);
+        const float layerNoise = undergroundNoises_.caveLayer.sample(x, y * kCaveLayerScaleY, z);
+        const float layer = kCaveLayerScale * layerNoise * layerNoise;
+        const float cheese =
+            std::clamp(undergroundNoises_.caveCheese.sample(x, y * kCaveCheeseScaleY, z) + kCaveCheeseBias, -1.0F, 1.0F)
+            + std::clamp(kCheeseSurfaceGuardBias - kCheeseSurfaceGuardSlope * slopedCheese, 0.0F, kCheeseSurfaceGuardMax);
         const float baseCave = layer + cheese;
+
+        // Every branch here carves, so they combine by taking the minimum;
+        // pillars are the one branch that adds material back.
         const float subtraction = std::min(
             std::min(baseCave, entrances),
             spaghetti2d(x, y, z) + spaghettiRoughness(x, y, z)
@@ -300,171 +712,104 @@ private:
         return std::max(subtraction, pillars(x, y, z));
     }
 
+    // --- Cave choice -------------------------------------------------------
+
     [[nodiscard]] float caves(double x, double y, double z) const {
         const Climate climate = sampleClimate(x, z);
         const Terrain terrain = sampleTerrain(x, y, z, climate);
         const float entrances = entrance(x, y, z);
-        const float surface = std::min(terrain.slopedCheese, 5.0F * entrances);
-        if (terrain.slopedCheese >= -1000000.0F && terrain.slopedCheese < 1.5625F) {
-            return surface;
+
+        // Near the surface only entrances are carved, so cheese caves and
+        // pillars cannot punch holes through hillsides.
+        if (inRangeChoice(terrain.slopedCheese, kUndergroundThreshold)) {
+            return std::min(terrain.slopedCheese, kSurfaceEntranceScale * entrances);
         }
         return underground(x, y, z, terrain.slopedCheese, entrances);
     }
 
-    [[nodiscard]] float slide(double x, double y, double z) const {
-        const float topFactor = clampedGradient(y, 240.0, 256.0, 1.0F, 0.0F);
-        const float top = lerp(topFactor, -0.078125F, caves(x, y, z));
-        const float bottomFactor = clampedGradient(y, -64.0, -40.0, 0.0F, 1.0F);
-        return lerp(bottomFactor, 0.1171875F, top);
+    // --- Slides ------------------------------------------------------------
+
+    [[nodiscard]] static float applySlides(double y, float density) {
+        const float topFactor = clampedGradient(y, kTopSlideFromY, kTopSlideToY, 1.0F, 0.0F);
+        const float top = lerp(topFactor, kTopSlideTarget, density);
+        const float bottomFactor = clampedGradient(y, kBottomSlideFromY, kBottomSlideToY, 0.0F, 1.0F);
+        return lerp(bottomFactor, kBottomSlideTarget, top);
     }
 
-    template <typename Value, typename Cache, typename Sampler>
-    [[nodiscard]] Value interpolate(
-        double x,
-        double y,
-        double z,
-        int xzSpacing,
-        int ySpacing,
-        Cache& cache,
-        Sampler&& sampler
-    ) const {
-        const int x0 = floorToGrid(x, xzSpacing);
-        const int y0 = floorToGrid(y, ySpacing);
-        const int z0 = floorToGrid(z, xzSpacing);
-        const int x1 = x0 + xzSpacing;
-        const int y1 = y0 + ySpacing;
-        const int z1 = z0 + xzSpacing;
-        const float tx = static_cast<float>((x - x0) / xzSpacing);
-        const float ty = static_cast<float>((y - y0) / ySpacing);
-        const float tz = static_cast<float>((z - z0) / xzSpacing);
-
-        const auto get = [&](int sx, int sy, int sz) -> Value {
-            const GridKey key{sx, sy, sz};
-            const auto found = cache.find(key);
-            if (found != cache.end()) {
-                return found->second;
-            }
-            const Value sampled = sampler(sx, sy, sz);
-            cache.emplace(key, sampled);
-            return sampled;
-        };
-        const auto blendValue = [](float amount, const Value& from, const Value& to) -> Value {
-            if constexpr (std::is_same_v<Value, float>) {
-                return lerp(amount, from, to);
-            } else {
-                Value output{};
-                for (std::size_t i = 0; i < output.size(); ++i) {
-                    output[i] = lerp(amount, from[i], to[i]);
-                }
-                return output;
-            }
-        };
-
-        const Value c000 = get(x0, y0, z0);
-        const Value c100 = get(x1, y0, z0);
-        const Value c010 = get(x0, y1, z0);
-        const Value c110 = get(x1, y1, z0);
-        const Value c001 = get(x0, y0, z1);
-        const Value c101 = get(x1, y0, z1);
-        const Value c011 = get(x0, y1, z1);
-        const Value c111 = get(x1, y1, z1);
-        const Value zLowYLow = blendValue(tx, c000, c100);
-        const Value zLowYHigh = blendValue(tx, c010, c110);
-        const Value zHighYLow = blendValue(tx, c001, c101);
-        const Value zHighYHigh = blendValue(tx, c011, c111);
-        return blendValue(tz, blendValue(ty, zLowYLow, zLowYHigh), blendValue(ty, zHighYLow, zHighYHigh));
-    }
+    // --- Post-processing and noodles ---------------------------------------
 
     [[nodiscard]] float interpolatePost(double x, double y, double z) const {
-        return interpolate<float>(x, y, z, 4, 8, postCache_, [&](int sx, int sy, int sz) {
-            return 0.64F * blender_->applyDensity(sx, sy, sz, slide(sx, sy, sz));
+        return postCache_.sample(x, y, z, [&](int sx, int sy, int sz) {
+            return kPostProcessScale * blender_->applyDensity(sx, sy, sz, applySlides(sy, caves(sx, sy, sz)));
         });
     }
 
-    [[nodiscard]] std::array<float, 4> interpolateNoodle(double x, double y, double z) const {
-        return interpolate<std::array<float, 4>>(x, y, z, 4, 8, noodleCache_, [&](int sx, int sy, int sz) {
-            if (sy < -60 || sy > 320) {
-                return std::array<float, 4>{-1.0F, 0.0F, 0.0F, 0.0F};
+    [[nodiscard]] NoodleSample interpolateNoodle(double x, double y, double z) const {
+        return noodleCache_.sample(x, y, z, [&](int sx, int sy, int sz) -> NoodleSample {
+            if (sy < kNoodleMinY || sy > kNoodleMaxY) {
+                return {kNoodleToggleOff, 0.0F, 0.0F, 0.0F};
             }
-            return std::array<float, 4>{
-                noodle_.sample(sx, sy, sz),
-                mapNoise(noodleThickness_.sample(sx, sy, sz), -0.05F, -0.1F),
-                noodleRidgeA_.sample(sx * (8.0 / 3.0), sy * (8.0 / 3.0), sz * (8.0 / 3.0)),
-                noodleRidgeB_.sample(sx * (8.0 / 3.0), sy * (8.0 / 3.0), sz * (8.0 / 3.0)),
+            return {
+                noodleNoises_.toggle.sample(sx, sy, sz),
+                mapNoise(
+                    noodleNoises_.thickness.sample(sx, sy, sz), kNoodleThicknessLow, kNoodleThicknessHigh
+                ),
+                noodleNoises_.ridgeA.sample(sx * kNoodleRidgeScale, sy * kNoodleRidgeScale, sz * kNoodleRidgeScale),
+                noodleNoises_.ridgeB.sample(sx * kNoodleRidgeScale, sy * kNoodleRidgeScale, sz * kNoodleRidgeScale),
             };
         });
     }
 
+    // --- Preliminary surface -----------------------------------------------
+
     [[nodiscard]] float preliminarySurface(int x, int z) const {
         const Climate climate = sampleClimate(x, z);
+
+        // Invert the gradient-density equation at Y = 0 to get a starting
+        // guess for where terrain crosses the surface, then search downwards.
         const Terrain terrainAtZero = sampleTerrain(x, 0.0, z, climate);
-        const float upperRaw = 0.2734375F / terrainAtZero.factor - terrainAtZero.offset;
-        const float upper = std::clamp(remap(upperRaw, 1.5F, -1.5F, -64.0F, 320.0F), -40.0F, 320.0F);
-        int y = floorToGrid(upper, 8);
-        for (; y >= -64; y -= 8) {
+        const float upperRaw = kSurfaceProbeNumerator / terrainAtZero.factor - terrainAtZero.offset;
+        const float upper = std::clamp(
+            remap(upperRaw, kDepthAtWorldBottom, kDepthAtWorldTop,
+                  static_cast<float>(kWorldMinY), static_cast<float>(kWorldMaxY)),
+            kSurfaceProbeFloorY,
+            static_cast<float>(kWorldMaxY)
+        );
+
+        for (int y = floorToGrid(upper, kCellHeight); y >= static_cast<int>(kWorldMinY); y -= kCellHeight) {
             const Terrain terrain = sampleTerrain(x, y, z, climate);
-            const float gradientDensity = 4.0F * quarterNegative(terrain.factor * terrain.depth);
-            const float probe = std::clamp(gradientDensity - 0.703125F, -64.0F, 64.0F);
-            const float top = lerp(clampedGradient(y, 240.0, 256.0, 1.0F, 0.0F), -0.078125F, probe);
-            const float slid = lerp(clampedGradient(y, -64.0, -40.0, 0.0F, 1.0F), 0.1171875F, top);
-            if (slid - 0.390625F > 0.0F) {
+            // Jaggedness and the 3-D noises are deliberately left out: this is
+            // a cheap estimate, not the real surface.
+            const float gradientDensity = noiseGradientDensity(terrain.factor, terrain.depth);
+            const float probe = std::clamp(
+                gradientDensity + kSurfaceProbeBias, -kSurfaceProbeClamp, kSurfaceProbeClamp
+            );
+            if (applySlides(y, probe) - kSurfaceSolidThreshold > 0.0F) {
                 return static_cast<float>(y);
             }
         }
-        return -64.0F;
+        return static_cast<float>(kWorldMinY);
     }
 
     [[nodiscard]] float sampleChunkSurfaceLevel(double x, double z) const {
-        const int x0 = floorToGrid(x, 16);
-        const int z0 = floorToGrid(z, 16);
-        const float tx = static_cast<float>((x - x0) / 16.0);
-        const float tz = static_cast<float>((z - z0) / 16.0);
-        const auto get = [&](int sx, int sz) {
-            const ColumnKey key{sx, sz};
-            const auto found = surfaceCache_.find(key);
-            if (found != surfaceCache_.end()) return found->second;
-            const float value = preliminarySurface(sx, sz);
-            surfaceCache_.emplace(key, value);
-            return value;
-        };
-        return lerp(tz, lerp(tx, get(x0, z0), get(x0 + 16, z0)), lerp(tx, get(x0, z0 + 16), get(x0 + 16, z0 + 16)));
+        return surfaceCache_.sample(x, z, [&](int sx, int sz) { return preliminarySurface(sx, sz); });
     }
 
     std::int64_t seed_;
     std::shared_ptr<const BlendSampler> blender_;
     std::shared_ptr<const Beardifier> beardifier_;
     detail::TerrainSplines splines_;
-    detail::NormalNoise shift_;
-    detail::NormalNoise temperature_;
-    detail::NormalNoise vegetation_;
-    detail::NormalNoise continentalness_;
-    detail::NormalNoise erosion_;
-    detail::NormalNoise ridge_;
-    detail::NormalNoise jagged_;
-    detail::NormalNoise roughness_;
-    detail::NormalNoise roughnessModulator_;
-    detail::NormalNoise spaghetti3dA_;
-    detail::NormalNoise spaghetti3dB_;
-    detail::NormalNoise spaghetti3dRarity_;
-    detail::NormalNoise spaghetti3dThickness_;
-    detail::NormalNoise caveEntrance_;
-    detail::NormalNoise spaghetti2d_;
-    detail::NormalNoise spaghetti2dElevation_;
-    detail::NormalNoise spaghetti2dModulator_;
-    detail::NormalNoise spaghetti2dThickness_;
-    detail::NormalNoise caveLayer_;
-    detail::NormalNoise caveCheese_;
-    detail::NormalNoise pillar_;
-    detail::NormalNoise pillarRareness_;
-    detail::NormalNoise pillarThickness_;
-    detail::NormalNoise noodle_;
-    detail::NormalNoise noodleThickness_;
-    detail::NormalNoise noodleRidgeA_;
-    detail::NormalNoise noodleRidgeB_;
+
+    ClimateNoises climateNoises_;
+    EntranceNoises entranceNoises_;
+    UndergroundNoises undergroundNoises_;
+    NoodleNoises noodleNoises_;
     detail::BlendedNoise blendedNoise_;
-    mutable std::unordered_map<GridKey, float, GridKeyHash> postCache_;
-    mutable std::unordered_map<GridKey, std::array<float, 4>, GridKeyHash> noodleCache_;
-    mutable std::unordered_map<ColumnKey, float, ColumnKeyHash> surfaceCache_;
+
+    // Sampling is therefore not const-safe across threads; see the header.
+    mutable LatticeCache<float> postCache_{kCellWidth, kCellHeight};
+    mutable LatticeCache<NoodleSample> noodleCache_{kCellWidth, kCellHeight};
+    mutable ColumnCache surfaceCache_{kColumnSpacing};
 };
 
 OverworldNoiseRouter::OverworldNoiseRouter(

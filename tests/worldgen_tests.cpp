@@ -3,6 +3,7 @@
 #include "noise.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -153,6 +154,72 @@ void testPlanarMesh() {
     }
 }
 
+// Characterization test: these values were recorded from a build that was
+// verified, sample by sample, against the pre-refactor implementation. They
+// pin the shape of the density graph so that a refactor which accidentally
+// re-associates a float expression, reorders a noise key or changes an
+// interpolation lattice is caught immediately.
+//
+// They are NOT a specification: nothing here claims to match Java Minecraft.
+// If you deliberately change generation, regenerate the table and say so in
+// the commit message. The tolerance absorbs libm differences between
+// platforms while staying far tighter than any real graph change.
+void testKnownDensities() {
+    constexpr float kTolerance = 1.0e-6F;
+
+    struct DensityCase {
+        std::int64_t seed;
+        double x;
+        double y;
+        double z;
+        float expected;
+    };
+    constexpr DensityCase densityCases[] = {
+        {0LL, 0, 0, 0, 0.017009696F},
+        {0LL, 7.5, 64, -13.25, -0.190210447F},
+        {0LL, -120, 12, 240, 0.0281047821F},
+        {1LL, 33, 96, 33, -0.243007153F},
+        {1LL, -8, -32, 17, 0.0955519974F},
+        {1LL, 512.5, 200, -512.5, -0.458333343F},
+        {123456789LL, 137, 72, -291, 0.00624254346F},
+        {123456789LL, 0, 300, 0, -0.0249947906F},
+        {-1LL, 64, -60, 64, 0.0505738854F},
+        {-1LL, 1000, 150, -1000, -0.458333343F},
+        {42LL, 16.25, 40.5, 16.75, 0.00114414725F},
+        {42LL, -256, 250, 128, -0.458333343F},
+    };
+    for (const DensityCase& testCase : densityCases) {
+        mcworld::OverworldNoiseRouter router(testCase.seed);
+        const float actual = router.sampleFinalDensity(testCase.x, testCase.y, testCase.z);
+        check(std::abs(actual - testCase.expected) < kTolerance, "final density matches recorded value");
+    }
+
+    struct RouterCase {
+        std::int64_t seed;
+        mcworld::RouterSample expected;
+    };
+    // All sampled at (24, 80, -56).
+    constexpr RouterCase routerCases[] = {
+        {0LL, {-0.329984188F, 0.235893145F, -0.156900778F, 0.150859639F,
+               -0.13023448F, 0.180103973F, 50.0F, -0.256850928F}},
+        {987654321LL, {-0.959688962F, 0.182327569F, -0.32746923F, -0.453818113F,
+                       -0.248750031F, -0.370430291F, 32.0F, -0.37250796F}},
+    };
+    for (const RouterCase& testCase : routerCases) {
+        mcworld::OverworldNoiseRouter router(testCase.seed);
+        const mcworld::RouterSample actual = router.sample(24.0, 80.0, -56.0);
+        const mcworld::RouterSample& want = testCase.expected;
+        check(std::abs(actual.temperature - want.temperature) < kTolerance, "temperature matches recorded value");
+        check(std::abs(actual.vegetation - want.vegetation) < kTolerance, "vegetation matches recorded value");
+        check(std::abs(actual.continentalness - want.continentalness) < kTolerance, "continentalness matches recorded value");
+        check(std::abs(actual.erosion - want.erosion) < kTolerance, "erosion matches recorded value");
+        check(std::abs(actual.depth - want.depth) < kTolerance, "depth matches recorded value");
+        check(std::abs(actual.ridges - want.ridges) < kTolerance, "ridges matches recorded value");
+        check(std::abs(actual.chunkSurfaceLevel - want.chunkSurfaceLevel) < kTolerance, "surface level matches recorded value");
+        check(std::abs(actual.finalDensity - want.finalDensity) < kTolerance, "final density matches recorded value");
+    }
+}
+
 void testInvalidCoordinates() {
     mcworld::OverworldNoiseRouter router(0);
     checkInvalid([&] { (void)router.sample(std::numeric_limits<double>::quiet_NaN(), 0, 0); }, "reject NaN coordinates");
@@ -172,6 +239,7 @@ int main() {
     testBeardifierInjection();
     testMeshExtraction();
     testNoise();
+    testKnownDensities();
     testPlanarMesh();
     testInvalidCoordinates();
     if (failures != 0) {
