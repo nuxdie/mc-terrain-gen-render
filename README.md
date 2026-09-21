@@ -38,14 +38,41 @@ ctest --test-dir build-headless --output-on-failure
 ```
 
 Use `--headless` to generate the complete mesh and print statistics without
-opening a window.
+opening a window. Combine it with `--voxel` to also generate and report voxel
+statistics without opening a window.
+
+Use `--voxel` to start in the block-style view:
+
+```sh
+./build/terrain_viewer --seed 12345 --chunk-x 0 --chunk-z 0 --voxel
+```
 
 Controls:
 
 - `WASD` and mouse: free camera
+- `V`: switch between the smooth density surface and voxel blocks
 - `F`: toggle wireframe
 - `Tab`: release or capture the cursor (camera input pauses while released)
 - `Esc`: exit
+
+The voxel view samples final density at each block center and emits only faces
+next to air. Grass, dirt, stone, and deepslate placement is a viewer-only visual
+approximation; the project does not implement Minecraft's biome surface rules or
+block-material stage.
+
+### Faithful 32x textures
+
+Viewer builds download the hash-pinned Faithful 32x 26.3 resource pack from its
+[official Modrinth listing](https://modrinth.com/resourcepack/faithful-32x) and
+extract only the five block textures used by the voxel atlas. The archive is
+kept under the build directory and is not part of this repository. Configure
+with `-DMCWORLD_FETCH_FAITHFUL_TEXTURES=OFF` for generated fallback textures and
+an offline build after Raylib is available.
+
+Voxel textures are from **Faithful 32x** by the Faithful Resource Pack project:
+[faithfulpack.net](https://faithfulpack.net). They are used under the
+[Faithful License](https://faithfulpack.net/license). Faithful is not affiliated
+with or endorsed by this project.
 
 ## Scope
 
@@ -87,7 +114,8 @@ few ULP. When refactoring this code for real, dump a large sample of
 float bit patterns before and after, and require the two dumps to be identical;
 that is how the current structure was verified against its predecessor.
 
-The viewer intentionally stops at step 7A. It shows a smooth density
-isosurface, not final Minecraft blocks. Aquifers, water and lava, surface
-materials, ores, carvers, biome decoration, and lighting belong to later steps
-in the diagram and are not represented.
+The generator intentionally stops at step 7A. Its smooth view shows the density
+isosurface, and its voxel view is a blocky visualization of that same field,
+not final Minecraft blocks. Aquifers, water and lava, true surface materials,
+ores, carvers, biome decoration, and lighting belong to later steps in the
+diagram and are not represented.

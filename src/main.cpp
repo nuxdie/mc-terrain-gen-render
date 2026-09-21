@@ -4,6 +4,7 @@
 
 #include "mcworld/isosurface.hpp"
 #include "mcworld/worldgen.hpp"
+#include "voxel_renderer.hpp"
 
 #include <raylib.h>
 #include <raymath.h>
@@ -27,6 +28,7 @@ struct Options {
     int chunkX{0};
     int chunkZ{0};
     bool headless{false};
+    bool voxel{false};
 };
 
 // --- Command line ----------------------------------------------------------
@@ -43,7 +45,7 @@ Number parseNumber(std::string_view text, std::string_view option) {
 
 void printUsage(const char* executable) {
     std::cout
-        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--headless]\n"
+        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--voxel] [--headless]\n"
         << "\n"
         << "Renders the Minecraft 26.3 standard Overworld final-density zero surface.\n";
 }
@@ -58,6 +60,10 @@ Options parseOptions(int argc, char** argv) {
         }
         if (argument == "--headless") {
             options.headless = true;
+            continue;
+        }
+        if (argument == "--voxel") {
+            options.voxel = true;
             continue;
         }
         if (i + 1 >= argc) {
@@ -162,8 +168,17 @@ Camera3D framingCamera(const mcworld::SurfaceMesh& surface) {
     return camera;
 }
 
-void drawOverlay(const Options& options, const mcworld::SurfaceMesh& surface, double elapsedSeconds) {
-    DrawRectangle(18, 18, 460, 92, {5, 9, 15, 205});
+void drawOverlay(
+    const Options& options,
+    const mcworld::SurfaceMesh& surface,
+    const viewer::VoxelMesh& voxels,
+    double surfaceSeconds,
+    double voxelSeconds,
+    bool voxelMode,
+    bool wireframe,
+    bool faithfulTextures
+) {
+    DrawRectangle(18, 18, 570, 140, {5, 9, 15, 205});
     DrawText(
         TextFormat(
             "Seed %lld  |  Chunk %d, %d",
@@ -172,14 +187,30 @@ void drawOverlay(const Options& options, const mcworld::SurfaceMesh& surface, do
         32, 30, 21, RAYWHITE
     );
     DrawText(
-        TextFormat("%zu triangles  |  %.2f s generation", surface.triangleCount(), elapsedSeconds),
+        TextFormat("Smooth: %zu triangles / %.2f s  |  Voxels: %zu faces / %.2f s",
+                   surface.triangleCount(), surfaceSeconds, voxels.faceCount(), voxelSeconds),
         32, 58, 18, {150, 205, 200, 255}
     );
-    DrawText("WASD + mouse: fly  |  F: wireframe  |  TAB: cursor", 32, 83, 16, {132, 151, 166, 255});
+    DrawText(TextFormat("View: %s%s  |  %zu solid voxels",
+                        voxelMode ? "voxel" : "smooth", wireframe ? " wireframe" : "",
+                        voxels.solidVoxelCount),
+             32, 84, 18, RAYWHITE);
+    DrawText("V: smooth/voxel  |  F: wireframe  |  WASD + mouse: fly  |  TAB: cursor",
+             32, 111, 16, {132, 151, 166, 255});
+    DrawText(faithfulTextures
+                 ? "Voxel textures: Faithful 32x (visual material approximation)"
+                 : "Voxel textures: generated fallback (visual material approximation)",
+             32, 134, 14, {117, 148, 139, 255});
     DrawFPS(GetScreenWidth() - 96, 20);
 }
 
-void runViewer(const Options& options, const mcworld::SurfaceMesh& surface, double elapsedSeconds) {
+void runViewer(
+    const Options& options,
+    const mcworld::SurfaceMesh& surface,
+    const viewer::VoxelMesh& voxels,
+    double surfaceSeconds,
+    double voxelSeconds
+) {
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(kWindowWidth, kWindowHeight, "Minecraft 26.3 density terrain");
     if (!IsWindowReady()) {
@@ -188,13 +219,20 @@ void runViewer(const Options& options, const mcworld::SurfaceMesh& surface, doub
     SetTargetFPS(kTargetFps);
     DisableCursor();
 
-    Model model = LoadModelFromMesh(uploadMesh(surface));
+    Model smoothModel = LoadModelFromMesh(uploadMesh(surface));
+    Model voxelModel = LoadModelFromMesh(viewer::uploadVoxelMesh(voxels));
+    const viewer::VoxelTextureAtlas voxelAtlas = viewer::loadVoxelTextureAtlas();
+    SetMaterialTexture(&voxelModel.materials[0], MATERIAL_MAP_DIFFUSE, voxelAtlas.texture);
     Camera3D camera = framingCamera(surface);
     bool wireframe = false;
+    bool voxelMode = options.voxel;
 
     while (!WindowShouldClose()) {
         if (IsKeyPressed(KEY_F)) {
             wireframe = !wireframe;
+        }
+        if (IsKeyPressed(KEY_V)) {
+            voxelMode = !voxelMode;
         }
         if (IsKeyPressed(KEY_TAB)) {
             IsCursorHidden() ? EnableCursor() : DisableCursor();
@@ -207,6 +245,7 @@ void runViewer(const Options& options, const mcworld::SurfaceMesh& surface, doub
         BeginDrawing();
         ClearBackground(kBackground);
         BeginMode3D(camera);
+        const Model& model = voxelMode ? voxelModel : smoothModel;
         if (wireframe) {
             DrawModelWires(model, {0.0F, 0.0F, 0.0F}, 1.0F, kWireframe);
         } else {
@@ -215,11 +254,15 @@ void runViewer(const Options& options, const mcworld::SurfaceMesh& surface, doub
         DrawGrid(64, 1.0F);
         DrawBoundingBox({{0.0F, -64.0F, 0.0F}, {16.0F, 320.0F, 16.0F}}, kChunkBounds);
         EndMode3D();
-        drawOverlay(options, surface, elapsedSeconds);
+        drawOverlay(
+            options, surface, voxels, surfaceSeconds, voxelSeconds, voxelMode, wireframe, voxelAtlas.faithful
+        );
         EndDrawing();
     }
 
-    UnloadModel(model);
+    UnloadModel(voxelModel);
+    UnloadTexture(voxelAtlas.texture);
+    UnloadModel(smoothModel);
     CloseWindow();
 }
 
@@ -233,23 +276,35 @@ int main(int argc, char** argv) {
         const mcworld::OverworldNoiseRouter router(options.seed);
         const mcworld::SurfaceMesh surface =
             mcworld::buildChunkIsosurface(router, {options.chunkX, options.chunkZ});
-        const double elapsedSeconds =
+        const double surfaceSeconds =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
 
         std::cout << "seed=" << options.seed
                   << " chunk=(" << options.chunkX << ',' << options.chunkZ << ')'
                   << " triangles=" << surface.triangleCount()
-                  << " generation=" << elapsedSeconds << "s\n";
+                   << " generation=" << surfaceSeconds << "s\n";
 
         if (surface.vertices.empty()) {
             std::cerr << "The selected chunk produced no density-zero surface.\n";
             return 2;
         }
+        if (options.headless && !options.voxel) {
+            return 0;
+        }
+
+        const auto voxelStarted = std::chrono::steady_clock::now();
+        const viewer::VoxelMesh voxels = viewer::buildVoxelMesh(router, options.chunkX, options.chunkZ);
+        const double voxelSeconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - voxelStarted).count();
+        std::cout << "solid_voxels=" << voxels.solidVoxelCount
+                  << " voxel_faces=" << voxels.faceCount()
+                  << " generation=" << voxelSeconds << "s\n";
+
         if (options.headless) {
             return 0;
         }
 
-        runViewer(options, surface, elapsedSeconds);
+        runViewer(options, surface, voxels, surfaceSeconds, voxelSeconds);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "terrain_viewer: " << error.what() << '\n';
