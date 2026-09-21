@@ -1,2 +1,3 @@
 mc-26.3-source/
 *.svg
+build*/
