@@ -15,17 +15,17 @@ constexpr int kMaxY = 320;
 constexpr int kHeight = kMaxY - kMinY;
 
 struct Occupancy {
-    std::array<std::uint8_t, kChunkSize * kHeight * kChunkSize> solid{};
+    std::array<std::uint8_t, (kChunkSize + 2) * kHeight * (kChunkSize + 2)> solid{};
 
     [[nodiscard]] bool at(int x, int y, int z) const {
-        if (x < 0 || x >= kChunkSize || y < kMinY || y >= kMaxY || z < 0 || z >= kChunkSize) {
+        if (x < -1 || x > kChunkSize || y < kMinY || y >= kMaxY || z < -1 || z > kChunkSize) {
             return false;
         }
         return solid[index(x, y, z)] != 0;
     }
 
     [[nodiscard]] static std::size_t index(int x, int y, int z) {
-        return static_cast<std::size_t>(((z * kChunkSize + x) * kHeight) + y - kMinY);
+        return static_cast<std::size_t>((((z + 1) * (kChunkSize + 2) + x + 1) * kHeight) + y - kMinY);
     }
 };
 
@@ -121,8 +121,9 @@ VoxelMesh buildVoxelMesh(const mcworld::OverworldNoiseRouter& router, int chunkX
     const std::int64_t originZ = static_cast<std::int64_t>(chunkZ) * kChunkSize;
 
     VoxelMesh mesh;
-    for (int z = 0; z < kChunkSize; ++z) {
-        for (int x = 0; x < kChunkSize; ++x) {
+    // Sample neighboring blocks so adjacent chunks do not emit internal walls.
+    for (int z = -1; z <= kChunkSize; ++z) {
+        for (int x = -1; x <= kChunkSize; ++x) {
             for (int y = kMinY; y < kMaxY; ++y) {
                 const bool solid = router.sampleFinalDensity(
                     static_cast<double>(originX + x) + 0.5,
@@ -130,7 +131,7 @@ VoxelMesh buildVoxelMesh(const mcworld::OverworldNoiseRouter& router, int chunkX
                     static_cast<double>(originZ + z) + 0.5
                 ) > 0.0F;
                 occupancy.solid[Occupancy::index(x, y, z)] = solid ? 1 : 0;
-                if (solid) {
+                if (solid && x >= 0 && x < kChunkSize && z >= 0 && z < kChunkSize) {
                     ++mesh.positiveDensityVoxelCount;
                 }
             }
@@ -151,7 +152,8 @@ VoxelMesh buildVoxelMesh(const mcworld::OverworldNoiseRouter& router, int chunkX
 }
 
 Mesh uploadVoxelMesh(const VoxelMesh& voxels) {
-    if (voxels.vertices.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    if (voxels.vertices.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())
+        || voxels.vertices.size() > std::numeric_limits<unsigned int>::max() / (3 * sizeof(float))) {
         throw std::runtime_error("Generated voxel mesh exceeds Raylib's vertex limit");
     }
 

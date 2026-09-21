@@ -2,7 +2,7 @@
 
 A C++20 implementation of step 7A in `minecraft-26.3-worldgen.dot`: the
 standard Overworld `NoiseRouter` and final-density graph. The project samples
-one chunk, extracts the `density = 0` surface, and displays it in an interactive
+an 8×8 chunk area, extracts the `density = 0` surface, and displays it in an interactive
 Raylib viewer.
 
 This is a graph-level implementation, not a bit-for-bit or seed-compatible Java port.
@@ -37,6 +37,12 @@ ctest --test-dir build-headless --output-on-failure
 ./build/terrain_viewer --seed 12345 --chunk-x 0 --chunk-z 0
 ```
 
+The viewer generates a fixed 8×8 area around `--chunk-x` / `--chunk-z`.
+Use `--chunks N` (1–16) for an N×N area, or `--chunks 1` for a single chunk.
+Each axis runs from `center - N/2` (integer division) through `center - N/2 + N - 1`;
+the default at (0, 0) covers chunks -4 through 3 on both axes (128×128 blocks).
+The area is generated at startup and does not stream as the camera moves.
+
 Use `--headless` to generate the complete mesh and print statistics without
 opening a window. Combine it with `--voxel` to also generate and report voxel
 statistics without opening a window.
@@ -49,14 +55,17 @@ Use `--voxel` to start in the block-style view:
 
 Controls:
 
-- `WASD` and mouse: free camera
+- `WASD` and mouse: free camera at 40 blocks/second
+- Hold `Shift`: boost flight speed to 160 blocks/second
+- `Space` / left `Ctrl`: fly up / down
 - `V`: switch between the smooth density surface and voxel blocks
 - `F`: toggle wireframe
 - `Tab`: release or capture the cursor (camera input pauses while released)
 - `Esc`: exit
 
 The voxel view samples final density at each block center and emits only faces
-next to air. Its neutral height tint and face lighting are presentation only.
+next to air, sampling neighboring chunks to suppress internal boundary faces.
+Its neutral height tint and face lighting are presentation only.
 No block type or material is assigned, because the project does not yet
 implement Minecraft's surface-rule or block-material stages.
 
@@ -73,7 +82,7 @@ throw `std::invalid_argument`.
 Mesh positions are chunk-local in X/Z and use world Y. Extraction accepts Y
 bounds within `[-64, 320]` and samples a one-block halo for consistent boundary
 normals. Meshes are open at the chunk boundary; the viewer starts above the
-selected chunk's highest surface.
+selected area's highest surface, with framing scaled to the area size.
 
 ## Working on the density graph
 

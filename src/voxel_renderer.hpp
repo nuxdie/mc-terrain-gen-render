@@ -31,6 +31,7 @@ struct VoxelMesh {
 };
 
 // Density is sampled at block centers. Only faces adjacent to air are emitted.
+// A one-block X/Z halo suppresses internal faces between neighboring chunks.
 [[nodiscard]] VoxelMesh buildVoxelMesh(const mcworld::OverworldNoiseRouter& router, int chunkX, int chunkZ);
 
 // Requires an initialized Raylib window/OpenGL context.
