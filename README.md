@@ -56,23 +56,9 @@ Controls:
 - `Esc`: exit
 
 The voxel view samples final density at each block center and emits only faces
-next to air. Grass, dirt, stone, and deepslate placement is a viewer-only visual
-approximation; the project does not implement Minecraft's biome surface rules or
-block-material stage.
-
-### Faithful 32x textures
-
-Viewer builds download the hash-pinned Faithful 32x 26.3 resource pack from its
-[official Modrinth listing](https://modrinth.com/resourcepack/faithful-32x) and
-extract only the five block textures used by the voxel atlas. The archive is
-kept under the build directory and is not part of this repository. Configure
-with `-DMCWORLD_FETCH_FAITHFUL_TEXTURES=OFF` for generated fallback textures and
-an offline build after Raylib is available.
-
-Voxel textures are from **Faithful 32x** by the Faithful Resource Pack project:
-[faithfulpack.net](https://faithfulpack.net). They are used under the
-[Faithful License](https://faithfulpack.net/license). Faithful is not affiliated
-with or endorsed by this project.
+next to air. Its neutral height tint and face lighting are presentation only.
+No block type or material is assigned, because the project does not yet
+implement Minecraft's surface-rule or block-material stages.
 
 ## Scope
 

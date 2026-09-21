@@ -175,8 +175,7 @@ void drawOverlay(
     double surfaceSeconds,
     double voxelSeconds,
     bool voxelMode,
-    bool wireframe,
-    bool faithfulTextures
+    bool wireframe
 ) {
     DrawRectangle(18, 18, 570, 140, {5, 9, 15, 205});
     DrawText(
@@ -191,15 +190,13 @@ void drawOverlay(
                    surface.triangleCount(), surfaceSeconds, voxels.faceCount(), voxelSeconds),
         32, 58, 18, {150, 205, 200, 255}
     );
-    DrawText(TextFormat("View: %s%s  |  %zu solid voxels",
+    DrawText(TextFormat("View: %s%s  |  %zu positive-density voxels",
                         voxelMode ? "voxel" : "smooth", wireframe ? " wireframe" : "",
-                        voxels.solidVoxelCount),
+                        voxels.positiveDensityVoxelCount),
              32, 84, 18, RAYWHITE);
     DrawText("V: smooth/voxel  |  F: wireframe  |  WASD + mouse: fly  |  TAB: cursor",
              32, 111, 16, {132, 151, 166, 255});
-    DrawText(faithfulTextures
-                 ? "Voxel textures: Faithful 32x (visual material approximation)"
-                 : "Voxel textures: generated fallback (visual material approximation)",
+    DrawText("Density voxels only: no block materials assigned",
              32, 134, 14, {117, 148, 139, 255});
     DrawFPS(GetScreenWidth() - 96, 20);
 }
@@ -221,8 +218,6 @@ void runViewer(
 
     Model smoothModel = LoadModelFromMesh(uploadMesh(surface));
     Model voxelModel = LoadModelFromMesh(viewer::uploadVoxelMesh(voxels));
-    const viewer::VoxelTextureAtlas voxelAtlas = viewer::loadVoxelTextureAtlas();
-    SetMaterialTexture(&voxelModel.materials[0], MATERIAL_MAP_DIFFUSE, voxelAtlas.texture);
     Camera3D camera = framingCamera(surface);
     bool wireframe = false;
     bool voxelMode = options.voxel;
@@ -254,14 +249,11 @@ void runViewer(
         DrawGrid(64, 1.0F);
         DrawBoundingBox({{0.0F, -64.0F, 0.0F}, {16.0F, 320.0F, 16.0F}}, kChunkBounds);
         EndMode3D();
-        drawOverlay(
-            options, surface, voxels, surfaceSeconds, voxelSeconds, voxelMode, wireframe, voxelAtlas.faithful
-        );
+        drawOverlay(options, surface, voxels, surfaceSeconds, voxelSeconds, voxelMode, wireframe);
         EndDrawing();
     }
 
     UnloadModel(voxelModel);
-    UnloadTexture(voxelAtlas.texture);
     UnloadModel(smoothModel);
     CloseWindow();
 }
@@ -296,7 +288,7 @@ int main(int argc, char** argv) {
         const viewer::VoxelMesh voxels = viewer::buildVoxelMesh(router, options.chunkX, options.chunkZ);
         const double voxelSeconds =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - voxelStarted).count();
-        std::cout << "solid_voxels=" << voxels.solidVoxelCount
+        std::cout << "positive_density_voxels=" << voxels.positiveDensityVoxelCount
                   << " voxel_faces=" << voxels.faceCount()
                   << " generation=" << voxelSeconds << "s\n";
 
