@@ -1,16 +1,18 @@
 digraph Minecraft_26_3_Worldgen {
   graph [
-    label="Minecraft Java Edition 26.3: seed to playable, rendered world\nComprehensive server world-generation and client-delivery flow",
+    label=<<FONT POINT-SIZE="30"><B>Minecraft Java Edition 26.3: seed to playable, rendered world</B></FONT><BR/><FONT POINT-SIZE="17" COLOR="#475569">Comprehensive server world-generation and client-delivery flow</FONT><BR/> >,
     labelloc=t,
-    fontsize=24,
-    fontname="Helvetica Bold",
+    labeljust=c,
+    fontname="Helvetica",
+    fontcolor="#0f172a",
+    fontsize=30,
     rankdir=TB,
     compound=true,
     newrank=true,
-    splines=polyline,
-    nodesep=0.35,
-    ranksep=0.60,
-    pad=0.25,
+    splines=spline,
+    nodesep=0.28,
+    ranksep=0.55,
+    pad=0.45,
     bgcolor="#f8fafc"
   ];
 
@@ -18,268 +20,517 @@ digraph Minecraft_26_3_Worldgen {
     shape=box,
     style="rounded,filled",
     fontname="Helvetica",
-    fontsize=10,
-    color="#334155",
+    fontsize=11,
+    penwidth=1.2,
+    color="#94a3b8",
+    fontcolor="#334155",
     fillcolor="#ffffff",
-    margin="0.12,0.08"
+    margin="0.16,0.10"
   ];
 
   edge [
     fontname="Helvetica",
     fontsize=9,
-    color="#475569",
-    arrowsize=0.75
+    fontcolor="#475569",
+    color="#7c8899",
+    penwidth=1.1,
+    arrowsize=0.7,
+    arrowhead=vee
   ];
 
-  // Color key:
+  // Color key (see the legend at the bottom of the diagram):
   // blue = bootstrap/configuration, amber = server scheduling/statuses,
   // green = terrain algorithms, violet = runtime/network/client,
   // gray = persistence/alternative path, red = decisions/failures.
 
+
   subgraph cluster_inputs {
-    label="1. Seed, options, packs, and registries";
+    label=<<FONT POINT-SIZE="15"><B>1. Seed, options, packs, and registries</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#1d4ed8";
     color="#93c5fd";
     fillcolor="#eff6ff";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    entry [label="START\nCreate/open singleplayer world or launch dedicated server\nbootstrap built-in registries; open/lock world storage", fillcolor="#dbeafe"];
-    seed_source [label="New-world seed input\nCreate World seed field or server.properties level-seed", fillcolor="#dbeafe"];
-    seed_parse [label="WorldOptions.parseSeed(text): trim first\nempty -> OptionalLong.empty (caller supplies random long)\nvalid long -> parsed value; otherwise String.hashCode()", fillcolor="#dbeafe"];
-    world_options [label="WorldOptions\nseed + generateStructures + generateBonusChest", fillcolor="#dbeafe"];
+    entry [label=<<B>START</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">Create/open singleplayer world or launch dedicated server<BR ALIGN="LEFT"/>bootstrap built-in registries; open/lock world storage<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    seed_source [label=<<B>New-world seed input</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">Create World seed field or server.properties level-seed<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    seed_parse [label=<<B>WorldOptions.parseSeed(text): trim first</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">empty -&gt; OptionalLong.empty (caller supplies random long)<BR ALIGN="LEFT"/>valid long -&gt; parsed value; otherwise String.hashCode()<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    world_options [label=<<B>WorldOptions</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">seed + generateStructures + generateBonusChest<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
 
-    pack_selection [label="Select vanilla + enabled server data packs\nPackRepository / WorldDataConfiguration", fillcolor="#dbeafe"];
-    resource_manager [label="WorldLoader.PackConfig.createResourceManager()\nMultiPackResourceManager", fillcolor="#dbeafe"];
-    static_registries [label="STATIC registry layer\nBuiltInRegistries + static tags", fillcolor="#dbeafe"];
-    world_registries [label="Load WORLD_REGISTRIES from data packs\nbiomes, carvers, features, structures, structure sets,\nnoise, density functions, material rules, noise settings, presets", fillcolor="#dbeafe"];
-    dimension_registries [label="Load DIMENSION_REGISTRIES\nLEVEL_STEM entries", fillcolor="#dbeafe"];
-    reloadable_resources [label="ReloadableServerResources.loadResources()\nrecipes, loot, tags, commands, advancements, functions", fillcolor="#dbeafe"];
+    pack_selection [label=<<B>Select vanilla + enabled server data packs</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">PackRepository / WorldDataConfiguration<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    resource_manager [label=<<B>WorldLoader.PackConfig.createResourceManager()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">MultiPackResourceManager<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    static_registries [label=<<B>STATIC registry layer</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">BuiltInRegistries + static tags<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    world_registries [label=<<B>Load WORLD_REGISTRIES from data packs</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">biomes, carvers, features, structures, structure sets,<BR ALIGN="LEFT"/>noise, density functions, material rules, noise settings, presets<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    dimension_registries [label=<<B>Load DIMENSION_REGISTRIES</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">LEVEL_STEM entries<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    reloadable_resources [label=<<B>ReloadableServerResources.loadResources()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">recipes, loot, tags, commands, advancements, functions<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
 
-    world_exists [shape=diamond, label="Saved world exists?", fillcolor="#fee2e2"];
-    load_saved_settings [label="Read level.dat + data/minecraft/world_gen_settings.dat\nfile/data fixes + WorldGenSettings.CODEC\nrecover saved seed/options/dimensions", fillcolor="#e2e8f0"];
-    choose_preset [label="Choose/create WorldPreset\nnormal, large biomes, amplified, flat, debug, custom", fillcolor="#dbeafe"];
-    build_dimensions [label="Build WorldDimensions\nLevelStem = DimensionType + ChunkGenerator", fillcolor="#dbeafe"];
-    bake_dimensions [label="WorldDimensions.bake(current data-pack stems)\nmerge/freeze final LEVEL_STEM registry\ndatapack entry wins for duplicate key", fillcolor="#dbeafe"];
-    worldgen_settings [label="WorldGenSettings\nWorldOptions + baked WorldDimensions", fillcolor="#dbeafe"];
-    world_stem [label="WorldStem\nresources + layered registries + world data/settings", fillcolor="#dbeafe"];
+    world_exists [shape=diamond, style="filled", label=<<B>Saved world exists?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    load_saved_settings [label=<<B>Read level.dat + data/minecraft/world_gen_settings.dat</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">file/data fixes + WorldGenSettings.CODEC<BR ALIGN="LEFT"/>recover saved seed/options/dimensions<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    choose_preset [label=<<B>Choose/create WorldPreset</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">normal, large biomes, amplified, flat, debug, custom<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    build_dimensions [label=<<B>Build WorldDimensions</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">LevelStem = DimensionType + ChunkGenerator<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    bake_dimensions [label=<<B>WorldDimensions.bake(current data-pack stems)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">merge/freeze final LEVEL_STEM registry<BR ALIGN="LEFT"/>datapack entry wins for duplicate key<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    worldgen_settings [label=<<B>WorldGenSettings</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">WorldOptions + baked WorldDimensions<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    world_stem [label=<<B>WorldStem</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">resources + layered registries + world data/settings<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
 
-    entry -> seed_source [label="new world"];
-    entry -> pack_selection [label="saved pack configuration or new selection"];
+    entry -> seed_source [label=<<I>new world</I>>];
+    entry -> pack_selection [label=<<I>saved pack configuration or new selection</I>>];
     seed_source -> seed_parse -> world_options;
     pack_selection -> resource_manager -> static_registries -> world_registries -> dimension_registries;
     dimension_registries -> world_exists;
-    world_exists -> load_saved_settings [label="yes"];
-    world_exists -> choose_preset [label="no"];
+    world_exists -> load_saved_settings [label=<<I>yes</I>>];
+    world_exists -> choose_preset [label=<<I>no</I>>];
     world_options -> choose_preset;
     choose_preset -> build_dimensions;
     load_saved_settings -> bake_dimensions;
     build_dimensions -> bake_dimensions;
     bake_dimensions -> worldgen_settings;
-    world_options -> worldgen_settings [label="new world"];
+    world_options -> worldgen_settings [label=<<I>new world</I>>];
     worldgen_settings -> reloadable_resources -> world_stem;
   }
 
+
   subgraph cluster_server_init {
-    label="2. Server and per-dimension generator initialization";
+    label=<<FONT POINT-SIZE="15"><B>2. Server and per-dimension generator initialization</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#1d4ed8";
     color="#93c5fd";
     fillcolor="#eff6ff";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    server_spin [label="MinecraftServer.spin()\nDedicatedServer or IntegratedServer", fillcolor="#dbeafe"];
-    server_load [label="MinecraftServer.loadLevel()\ncreateLevels -> prepareLevels", fillcolor="#dbeafe"];
-    level_loop [label="Construct Overworld first; initialize global spawn\nthen construct remaining LevelStems\nNether, End, custom dimensions", fillcolor="#dbeafe"];
-    server_level [label="Construct ServerLevel\nall dimensions share saved world seed", fillcolor="#dbeafe"];
-    generator_dispatch [shape=diamond, label="ChunkGenerator type?", fillcolor="#fee2e2"];
-    noise_generator [label="NoiseBasedChunkGenerator\nBiomeSource + NoiseGeneratorSettings", fillcolor="#dcfce7"];
-    flat_generator [label="FlatLevelSource\nconfigured layers + fixed biome", fillcolor="#e2e8f0"];
-    debug_generator [label="DebugLevelSource\nbarrier/display grid during FEATURES", fillcolor="#e2e8f0"];
-    server_chunk_cache [label="ServerChunkCache", fillcolor="#dbeafe"];
-    chunk_map_init [label="ChunkMap\nregion storage + task dispatchers + light engine + distance manager", fillcolor="#dbeafe"];
-    random_state [label="RandomState.create(noise registry, seed, settings)\nselect Xoroshiro or legacy RNG\ninitialize lazy density compiler + keyed noises + MaterialSystem", fillcolor="#dcfce7"];
-    dummy_random_state [label="Dummy RandomState for flat/debug\nstone + sea level 63 + empty NoiseRouter", fillcolor="#e2e8f0"];
-    structure_state [label="ChunkGenerator.createState()\nChunkGeneratorStructureState\nfilter structure sets by possible biomes\nprecompute concentric-ring positions", fillcolor="#dcfce7"];
-    biome_resolver [label="BiomeSource.createUncachedResolver(RandomState)\nper-dimension biome resolver", fillcolor="#dcfce7"];
+    server_spin [label=<<B>MinecraftServer.spin()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">DedicatedServer or IntegratedServer<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    server_load [label=<<B>MinecraftServer.loadLevel()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">createLevels -&gt; prepareLevels<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    level_loop [label=<<B>Construct Overworld first; initialize global spawn</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">then construct remaining LevelStems<BR ALIGN="LEFT"/>Nether, End, custom dimensions<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    server_level [label=<<B>Construct ServerLevel</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">all dimensions share saved world seed<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    generator_dispatch [shape=diamond, style="filled", label=<<B>ChunkGenerator type?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    noise_generator [label=<<B>NoiseBasedChunkGenerator</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">BiomeSource + NoiseGeneratorSettings<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    flat_generator [label=<<B>FlatLevelSource</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">configured layers + fixed biome<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    debug_generator [label=<<B>DebugLevelSource</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">barrier/display grid during FEATURES<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    server_chunk_cache [label=<<B>ServerChunkCache</B>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    chunk_map_init [label=<<B>ChunkMap</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">region storage + task dispatchers + light engine + distance manager<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    random_state [label=<<B>RandomState.create(noise registry, seed, settings)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">select Xoroshiro or legacy RNG<BR ALIGN="LEFT"/>initialize lazy density compiler + keyed noises + MaterialSystem<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    dummy_random_state [label=<<B>Dummy RandomState for flat/debug</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">stone + sea level 63 + empty NoiseRouter<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    structure_state [label=<<B>ChunkGenerator.createState()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">ChunkGeneratorStructureState<BR ALIGN="LEFT"/>filter structure sets by possible biomes<BR ALIGN="LEFT"/>precompute concentric-ring positions<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    biome_resolver [label=<<B>BiomeSource.createUncachedResolver(RandomState)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">per-dimension biome resolver<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
 
     world_stem -> server_spin -> server_load -> level_loop -> server_level -> generator_dispatch;
-    generator_dispatch -> noise_generator [label="noise"];
-    generator_dispatch -> flat_generator [label="flat"];
-    generator_dispatch -> debug_generator [label="debug"];
+    generator_dispatch -> noise_generator [label=<<I>noise</I>>];
+    generator_dispatch -> flat_generator [label=<<I>flat</I>>];
+    generator_dispatch -> debug_generator [label=<<I>debug</I>>];
     noise_generator -> server_chunk_cache;
     flat_generator -> server_chunk_cache;
     debug_generator -> server_chunk_cache;
     server_chunk_cache -> chunk_map_init;
     noise_generator -> random_state;
-    chunk_map_init -> random_state [label="per dimension"];
-    chunk_map_init -> dummy_random_state [label="flat/debug"];
+    chunk_map_init -> random_state [label=<<I>per dimension</I>>];
+    chunk_map_init -> dummy_random_state [label=<<I>flat/debug</I>>];
     random_state -> structure_state;
     dummy_random_state -> structure_state;
     structure_state -> biome_resolver;
   }
 
+
   subgraph cluster_spawn_init {
-    label="3. New-world initial spawn";
-    color="#fbbf24";
+    label=<<FONT POINT-SIZE="15"><B>3. New-world initial spawn</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#b45309";
+    color="#fcd34d";
     fillcolor="#fffbeb";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    initialized_world [shape=diamond, label="Overworld only: level data already initialized?", fillcolor="#fee2e2"];
-    debug_spawn_check [shape=diamond, label="Debug world / developer spawn override?", fillcolor="#fee2e2"];
-    debug_spawn [label="Debug world: fixed spawn (0,80,0)\nset spectator, peaceful, fixed weather/time\n(developer override has its own fixed position)", fillcolor="#e2e8f0"];
-    skip_spawn_init [label="Keep saved spawn\n(no initial spawn search or bonus chest)", fillcolor="#e2e8f0"];
-    spawn_origin [label="ChunkGenerator.getOrigin(RandomState)\nnoise generator: NoiseSpawnFinder searches spawn-target density fitness", fillcolor="#fef3c7"];
-    spawn_height [label="Get spawn height\nfall back to WORLD_SURFACE heightmap when needed", fillcolor="#fef3c7"];
-    spawn_spiral [label="Spiral up to 11 x 11 candidate chunks\nPlayerSpawnFinder.getSpawnPosInChunk()", fillcolor="#fef3c7"];
-    spawn_full_request [label="Candidate checks request ChunkStatus.FULL\nThis triggers the chunk pipeline below", fillcolor="#fef3c7"];
-    spawn_candidate [shape=diamond, label="Valid spawn in candidate chunk?", fillcolor="#fee2e2"];
-    spawn_more [shape=diamond, label="More spiral candidates?", fillcolor="#fee2e2"];
-    final_spawn [label="Use first valid position; if none found, retain\ninitial origin-chunk center + spawn-height fallback", fillcolor="#fef3c7"];
-    bonus_chest_check [shape=diamond, label="Bonus chest enabled and normal world?", fillcolor="#fee2e2"];
-    bonus_chest [label="BonusChestFeature.place()\nchest + loot table + surrounding torches", fillcolor="#fef3c7"];
-    finish_levels [label="Mark new Overworld initialized\nconstruct remaining dimensions; install world-border listeners", fillcolor="#dbeafe"];
-    prepare_levels [label="MinecraftServer.prepareLevels()\nactivate persisted tickets and wait for ticketed FULL chunks\nupdate mob-spawning flags and effective respawn data", fillcolor="#fef3c7"];
+    initialized_world [shape=diamond, style="filled", label=<<B>Overworld only: level data already initialized?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    debug_spawn_check [shape=diamond, style="filled", label=<<B>Debug world / developer spawn override?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    debug_spawn [label=<<B>Debug world: fixed spawn (0,80,0)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">set spectator, peaceful, fixed weather/time<BR ALIGN="LEFT"/>(developer override has its own fixed position)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    skip_spawn_init [label=<<B>Keep saved spawn</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">(no initial spawn search or bonus chest)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    spawn_origin [label=<<B>ChunkGenerator.getOrigin(RandomState)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">noise generator: NoiseSpawnFinder searches spawn-target density fitness<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    spawn_height [label=<<B>Get spawn height</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">fall back to WORLD_SURFACE heightmap when needed<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    spawn_spiral [label=<<B>Spiral up to 11 x 11 candidate chunks</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">PlayerSpawnFinder.getSpawnPosInChunk()<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    spawn_full_request [label=<<B>Candidate checks request ChunkStatus.FULL</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">This triggers the chunk pipeline below<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    spawn_candidate [shape=diamond, style="filled", label=<<B>Valid spawn in candidate chunk?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    spawn_more [shape=diamond, style="filled", label=<<B>More spiral candidates?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    final_spawn [label=<<B>Use first valid position; if none found, retain</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">initial origin-chunk center + spawn-height fallback<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    bonus_chest_check [shape=diamond, style="filled", label=<<B>Bonus chest enabled and normal world?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    bonus_chest [label=<<B>BonusChestFeature.place()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">chest + loot table + surrounding torches<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    finish_levels [label=<<B>Mark new Overworld initialized</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#3b5f9e">construct remaining dimensions; install world-border listeners<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dbeafe", color="#60a5fa", fontcolor="#1e3a8a"];
+    prepare_levels [label=<<B>MinecraftServer.prepareLevels()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">activate persisted tickets and wait for ticketed FULL chunks<BR ALIGN="LEFT"/>update mob-spawning flags and effective respawn data<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
 
     biome_resolver -> initialized_world;
-    initialized_world -> skip_spawn_init [label="yes"];
-    initialized_world -> debug_spawn_check [label="no"];
-    debug_spawn_check -> debug_spawn [label="yes"];
-    debug_spawn_check -> spawn_origin [label="no"];
+    initialized_world -> skip_spawn_init [label=<<I>yes</I>>];
+    initialized_world -> debug_spawn_check [label=<<I>no</I>>];
+    debug_spawn_check -> debug_spawn [label=<<I>yes</I>>];
+    debug_spawn_check -> spawn_origin [label=<<I>no</I>>];
     spawn_origin -> spawn_height -> spawn_spiral -> spawn_full_request;
     final_spawn -> bonus_chest_check;
-    bonus_chest_check -> bonus_chest [label="yes"];
-    spawn_candidate -> final_spawn [label="yes"];
-    spawn_candidate -> spawn_more [label="no"];
-    spawn_more -> spawn_spiral [label="yes; next chunk"];
-    spawn_more -> final_spawn [label="no; fallback"];
-    bonus_chest_check -> finish_levels [label="no"];
+    bonus_chest_check -> bonus_chest [label=<<I>yes</I>>];
+    spawn_candidate -> final_spawn [label=<<I>yes</I>>];
+    spawn_candidate -> spawn_more [label=<<I>no</I>>];
+    spawn_more -> spawn_spiral [label=<<I>yes; next chunk</I>>];
+    spawn_more -> final_spawn [label=<<I>no; fallback</I>>];
+    bonus_chest_check -> finish_levels [label=<<I>no</I>>];
     bonus_chest -> finish_levels;
     skip_spawn_init -> finish_levels;
     debug_spawn -> finish_levels;
     finish_levels -> prepare_levels;
   }
 
+
   subgraph cluster_scheduler {
-    label="4. Chunk request, tickets, disk load, and generation scheduling";
-    color="#fbbf24";
+    label=<<FONT POINT-SIZE="15"><B>4. Chunk request, tickets, disk load, and generation scheduling</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#b45309";
+    color="#fcd34d";
     fillcolor="#fffbeb";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    request_sources [label="Chunk requested by spawn search, player view, commands,\nportal/gameplay access, or persisted ticket", fillcolor="#fef3c7"];
-    status_request [label="ServerChunkCache.getChunk / getChunkFuture\ntarget ChunkStatus (commonly FULL)", fillcolor="#fef3c7"];
-    add_ticket [label="Add loading ticket at target status level\nDistanceManager.runAllUpdates()", fillcolor="#fef3c7"];
-    schedule_holder [label="GenerationChunkHolder.scheduleChunkGenerationTask()", fillcolor="#fef3c7"];
-    generation_task [label="ChunkGenerationTask.create()\nreserve worst-case dependency cache\nFULL generation uses radius 11 = 23 x 23 chunks", fillcolor="#fef3c7"];
-    empty_status [label="EMPTY\nChunkMap.scheduleChunkLoad()", fillcolor="#fef3c7"];
-    region_data [shape=diamond, label="Valid chunk NBT exists?", fillcolor="#fee2e2"];
-    deserialize [label="SerializableChunkData.parse/read\nrestore sections, palettes, biomes, heightmaps, structures,\nreferences, ticks, block entities, light, persisted status", fillcolor="#e2e8f0"];
-    fresh_proto [label="Create fresh ProtoChunk\npersisted status = EMPTY", fillcolor="#fef3c7"];
-    load_eligible [shape=diamond, label="Center and required neighbors already\nhave sufficient persisted statuses?", fillcolor="#fee2e2"];
-    loading_pyramid [label="LOADING_PYRAMID\nreuse saved structures/biomes/terrain/features/spawn\nreinstall structure metadata, initialize/validate light, convert FULL", fillcolor="#e2e8f0"];
-    generation_pyramid [label="Generation dependency layers\nper chunk/step: GENERATION_PYRAMID only above persisted status;\notherwise LOADING_PYRAMID (reuse completed work)", fillcolor="#fef3c7"];
-    status_commit [label="After each successful ProtoChunk stage\nsetPersistedStatus(target) + mark unsaved", fillcolor="#fef3c7"];
+    request_sources [label=<<B>Chunk requested by spawn search, player view, commands,</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">portal/gameplay access, or persisted ticket<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    status_request [label=<<B>ServerChunkCache.getChunk / getChunkFuture</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">target ChunkStatus (commonly FULL)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    add_ticket [label=<<B>Add loading ticket at target status level</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">DistanceManager.runAllUpdates()<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    schedule_holder [label=<<B>GenerationChunkHolder.scheduleChunkGenerationTask()</B>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    generation_task [label=<<B>ChunkGenerationTask.create()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">reserve worst-case dependency cache<BR ALIGN="LEFT"/>FULL generation uses radius 11 = 23 x 23 chunks<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    empty_status [label=<<B>EMPTY</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">ChunkMap.scheduleChunkLoad()<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    region_data [shape=diamond, style="filled", label=<<B>Valid chunk NBT exists?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    deserialize [label=<<B>SerializableChunkData.parse/read</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">restore sections, palettes, biomes, heightmaps, structures,<BR ALIGN="LEFT"/>references, ticks, block entities, light, persisted status<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    fresh_proto [label=<<B>Create fresh ProtoChunk</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">persisted status = EMPTY<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    load_eligible [shape=diamond, style="filled", label=<<B>Center and required neighbors already</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9b2c2c">have sufficient persisted statuses?<BR ALIGN="CENTER"/></FONT>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    loading_pyramid [label=<<B>LOADING_PYRAMID</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">reuse saved structures/biomes/terrain/features/spawn<BR ALIGN="LEFT"/>reinstall structure metadata, initialize/validate light, convert FULL<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    generation_pyramid [label=<<B>Generation dependency layers</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">per chunk/step: GENERATION_PYRAMID only above persisted status;<BR ALIGN="LEFT"/>otherwise LOADING_PYRAMID (reuse completed work)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    status_commit [label=<<B>After each successful ProtoChunk stage</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">setPersistedStatus(target) + mark unsaved<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
 
     spawn_full_request -> status_request [ltail=cluster_spawn_init, lhead=cluster_scheduler];
-    prepare_levels -> request_sources [style=dashed, label="ticketed chunks"];
+    prepare_levels -> request_sources [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>ticketed chunks</I>>];
     request_sources -> status_request -> add_ticket -> schedule_holder -> generation_task -> empty_status -> region_data;
-    region_data -> deserialize [label="yes"];
-    region_data -> fresh_proto [label="no / recoverable error"];
+    region_data -> deserialize [label=<<I>yes</I>>];
+    region_data -> fresh_proto [label=<<I>no / recoverable error</I>>];
     deserialize -> load_eligible;
     fresh_proto -> load_eligible;
-    load_eligible -> loading_pyramid [label="yes"];
-    load_eligible -> generation_pyramid [label="no"];
+    load_eligible -> loading_pyramid [label=<<I>yes</I>>];
+    load_eligible -> generation_pyramid [label=<<I>no</I>>];
   }
 
+
   subgraph cluster_dependencies {
-    label="Generation-pyramid direct prerequisites (Chebyshev chunk distance)";
+    label=<<FONT POINT-SIZE="15"><B>Generation-pyramid direct prerequisites (Chebyshev chunk distance)</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#475569";
     color="#cbd5e1";
     fillcolor="#f1f5f9";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
     dependency_table [
-      shape=record,
-      style="filled",
+      shape=box,
+      style="rounded,filled",
       fillcolor="#ffffff",
-      label="{Target status|Direct requirements|Accumulated maximum radius}|{STRUCTURE_STARTS|EMPTY at d0|0}|{STRUCTURE_REFERENCES|STRUCTURE_STARTS at d0..8|8}|{BIOMES|REFERENCES d0; STARTS d1..8|8}|{TERRAIN|BIOMES d0..1; STARTS d2..8|9}|{FEATURES|TERRAIN d0..1; STARTS d2..8|10}|{INITIALIZE_LIGHT|FEATURES d0|10}|{LIGHT|INITIALIZE_LIGHT d0..1|11}|{SPAWN|LIGHT d0; BIOMES d1|11}|{FULL|SPAWN d0|11}"
+      color="#cbd5e1",
+      margin="0.05,0.05",
+      label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" BGCOLOR="#ffffff">
+        <TR><TD BGCOLOR="#e2e8f0" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#0f172a"><B>Target status</B></FONT></TD><TD BGCOLOR="#e2e8f0" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#0f172a"><B>Direct requirements</B></FONT></TD><TD BGCOLOR="#e2e8f0" ALIGN="RIGHT"><FONT POINT-SIZE="10" COLOR="#0f172a"><B>Accumulated maximum radius</B></FONT></TD></TR>
+        <TR><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>STRUCTURE_STARTS</B></FONT></TD><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">EMPTY at d0</FONT></TD><TD BGCOLOR="#ffffff" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">0</FONT></TD></TR>
+        <TR><TD BGCOLOR="#f8fafc" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>STRUCTURE_REFERENCES</B></FONT></TD><TD BGCOLOR="#f8fafc" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">STRUCTURE_STARTS at d0..8</FONT></TD><TD BGCOLOR="#f8fafc" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">8</FONT></TD></TR>
+        <TR><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>BIOMES</B></FONT></TD><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">REFERENCES d0; STARTS d1..8</FONT></TD><TD BGCOLOR="#ffffff" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">8</FONT></TD></TR>
+        <TR><TD BGCOLOR="#f8fafc" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>TERRAIN</B></FONT></TD><TD BGCOLOR="#f8fafc" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">BIOMES d0..1; STARTS d2..8</FONT></TD><TD BGCOLOR="#f8fafc" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">9</FONT></TD></TR>
+        <TR><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>FEATURES</B></FONT></TD><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">TERRAIN d0..1; STARTS d2..8</FONT></TD><TD BGCOLOR="#ffffff" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">10</FONT></TD></TR>
+        <TR><TD BGCOLOR="#f8fafc" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>INITIALIZE_LIGHT</B></FONT></TD><TD BGCOLOR="#f8fafc" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">FEATURES d0</FONT></TD><TD BGCOLOR="#f8fafc" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">10</FONT></TD></TR>
+        <TR><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>LIGHT</B></FONT></TD><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">INITIALIZE_LIGHT d0..1</FONT></TD><TD BGCOLOR="#ffffff" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">11</FONT></TD></TR>
+        <TR><TD BGCOLOR="#f8fafc" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>SPAWN</B></FONT></TD><TD BGCOLOR="#f8fafc" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">LIGHT d0; BIOMES d1</FONT></TD><TD BGCOLOR="#f8fafc" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">11</FONT></TD></TR>
+        <TR><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#14532d"><B>FULL</B></FONT></TD><TD BGCOLOR="#ffffff" ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">SPAWN d0</FONT></TD><TD BGCOLOR="#ffffff" ALIGN="RIGHT"><FONT POINT-SIZE="9.5" COLOR="#475569">11</FONT></TD></TR>
+        </TABLE>>
     ];
   }
 
-  generation_pyramid -> dependency_table [style=dashed, label="scheduler enforces"];
+  generation_pyramid -> dependency_table [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>scheduler enforces</I>>];
+
 
   subgraph cluster_structures {
-    label="5. STRUCTURE_STARTS and STRUCTURE_REFERENCES";
+    label=<<FONT POINT-SIZE="15"><B>5. STRUCTURE_STARTS and STRUCTURE_REFERENCES</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#15803d";
     color="#86efac";
     fillcolor="#f0fdf4";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    structures_enabled [shape=diamond, label="generateStructures enabled?", fillcolor="#fee2e2"];
-    structure_sets [label="For each possible StructureSet\ntest StructurePlacement.isStructureChunk(seed, chunk)", fillcolor="#dcfce7"];
-    structure_select [label="Weighted structure selection\nlegacy/large-feature positional random", fillcolor="#dcfce7"];
-    structure_generate [label="Structure.generate()\ncheck allowed biome, choose generation point, build piece list", fillcolor="#dcfce7"];
-    structure_valid [shape=diamond, label="Valid StructureStart?", fillcolor="#fee2e2"];
-    store_start [label="Store StructureStart\nbounding boxes, pieces, junctions, reference count", fillcolor="#dcfce7"];
-    starts_available [label="ServerLevel.onStructureStartsAvailable()\nupdate StructureCheck", fillcolor="#dcfce7"];
-    reference_scan [label="STRUCTURE_REFERENCES\nscan source chunks in radius 8 (17 x 17)", fillcolor="#dcfce7"];
-    reference_intersect [label="For each valid start\nif start bounding box intersects target chunk footprint", fillcolor="#dcfce7"];
-    store_reference [label="Store source chunk position in target's\nper-structure reference set", fillcolor="#dcfce7"];
+    structures_enabled [shape=diamond, style="filled", label=<<B>generateStructures enabled?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    structure_sets [label=<<B>For each possible StructureSet</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">test StructurePlacement.isStructureChunk(seed, chunk)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    structure_select [label=<<B>Weighted structure selection</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">legacy/large-feature positional random<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    structure_generate [label=<<B>Structure.generate()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">check allowed biome, choose generation point, build piece list<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    structure_valid [shape=diamond, style="filled", label=<<B>Valid StructureStart?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    store_start [label=<<B>Store StructureStart</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">bounding boxes, pieces, junctions, reference count<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    starts_available [label=<<B>ServerLevel.onStructureStartsAvailable()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">update StructureCheck<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    reference_scan [label=<<B>STRUCTURE_REFERENCES</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">scan source chunks in radius 8 (17 x 17)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    reference_intersect [label=<<B>For each valid start</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">if start bounding box intersects target chunk footprint<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    store_reference [label=<<B>Store source chunk position in target's</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">per-structure reference set<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
 
     generation_pyramid -> structures_enabled [lhead=cluster_structures];
-    structures_enabled -> structure_sets [label="yes"];
-    structures_enabled -> starts_available [label="no"];
+    structures_enabled -> structure_sets [label=<<I>yes</I>>];
+    structures_enabled -> starts_available [label=<<I>no</I>>];
     structure_sets -> structure_select -> structure_generate -> structure_valid;
-    structure_valid -> store_start [label="yes"];
-    structure_valid -> structure_sets [label="no / next candidate"];
+    structure_valid -> store_start [label=<<I>yes</I>>];
+    structure_valid -> structure_sets [label=<<I>no / next candidate</I>>];
     store_start -> starts_available;
-    structure_sets -> starts_available [label="all sets processed / none eligible"];
-    starts_available -> status_commit [style=dotted, label="persist STARTS"];
+    structure_sets -> starts_available [label=<<I>all sets processed / none eligible</I>>];
+    starts_available -> status_commit [style=dotted, color="#b45309", fontcolor="#b45309", label=<<I>persist STARTS</I>>];
     starts_available -> reference_scan -> reference_intersect -> store_reference;
-    store_reference -> status_commit [style=dotted, label="persist REFERENCES"];
+    store_reference -> status_commit [style=dotted, color="#b45309", fontcolor="#b45309", label=<<I>persist REFERENCES</I>>];
   }
 
+
   subgraph cluster_biomes {
-    label="6. BIOMES";
+    label=<<FONT POINT-SIZE="15"><B>6. BIOMES</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#15803d";
     color="#86efac";
     fillcolor="#f0fdf4";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    biome_density_pool [label="Acquire density-buffer pool\nRandomState.createClimateSampler()", fillcolor="#dcfce7"];
-    biome_source_type [shape=diamond, label="BiomeSource.createResolverForChunk()\nWhich biome source?", fillcolor="#fee2e2"];
-    biome_other [label="FixedBiomeSource: constant biome (flat/debug)\nCheckerboardColumnBiomeSource: X/Z checkerboard (custom)\nTheEndBiomeSource: central radius + erosion-based outer biomes", fillcolor="#dcfce7"];
-    biome_climate [label="MultiNoiseBiomeSource (Overworld / Nether)\nsample six climate fields at quart coordinates\ntemperature, humidity, continentalness, erosion, depth, weirdness", fillcolor="#dcfce7"];
-    biome_quantize [label="Quantize each float: (long)(value * 10000)\nform Climate.TargetPoint", fillcolor="#dcfce7"];
-    biome_lookup [label="Climate.ParameterList.findValue()\nnearest 7-D parameter point including offset penalty", fillcolor="#dcfce7"];
-    biome_blend [label="Decorate resolver for old/new blending\nand below-zero retrogen where applicable", fillcolor="#dcfce7"];
-    biome_palette [label="ProtoChunk.fillBiomesFromNoise()\nwrite 4 x 4 x 4 biome palette cells per section", fillcolor="#dcfce7"];
-    biome_release [label="Release density-buffer pool", fillcolor="#dcfce7"];
+    biome_density_pool [label=<<B>Acquire density-buffer pool</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">RandomState.createClimateSampler()<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    biome_source_type [shape=diamond, style="filled", label=<<B>BiomeSource.createResolverForChunk()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9b2c2c">Which biome source?<BR ALIGN="CENTER"/></FONT>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    biome_other [label=<<B>FixedBiomeSource: constant biome (flat/debug)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">CheckerboardColumnBiomeSource: X/Z checkerboard (custom)<BR ALIGN="LEFT"/>TheEndBiomeSource: central radius + erosion-based outer biomes<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    biome_climate [label=<<B>MultiNoiseBiomeSource (Overworld / Nether)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">sample six climate fields at quart coordinates<BR ALIGN="LEFT"/>temperature, humidity, continentalness, erosion, depth, weirdness<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    biome_quantize [label=<<B>Quantize each float: (long)(value * 10000)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">form Climate.TargetPoint<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    biome_lookup [label=<<B>Climate.ParameterList.findValue()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">nearest 7-D parameter point including offset penalty<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    biome_blend [label=<<B>Decorate resolver for old/new blending</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">and below-zero retrogen where applicable<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    biome_palette [label=<<B>ProtoChunk.fillBiomesFromNoise()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">write 4 x 4 x 4 biome palette cells per section<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    biome_release [label=<<B>Release density-buffer pool</B>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
 
     biome_density_pool -> biome_source_type;
-    biome_source_type -> biome_climate [label="multi-noise"];
-    biome_source_type -> biome_other [label="other built-in sources"];
+    biome_source_type -> biome_climate [label=<<I>multi-noise</I>>];
+    biome_source_type -> biome_other [label=<<I>other built-in sources</I>>];
     biome_climate -> biome_quantize -> biome_lookup -> biome_blend -> biome_palette -> biome_release;
     biome_other -> biome_blend;
-    biome_release -> status_commit [style=dotted, label="persist BIOMES"];
+    biome_release -> status_commit [style=dotted, color="#b45309", fontcolor="#b45309", label=<<I>persist BIOMES</I>>];
   }
 
+
   subgraph cluster_density_graph {
-    label="7A. Overworld NoiseRouter and final-density graph";
+    label=<<FONT POINT-SIZE="15"><B>7A. Overworld NoiseRouter and final-density graph</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#047857";
     color="#4ade80";
     fillcolor="#ecfdf5";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    noise_seed [label="World seed -> positional RNG factories -> keyed noises\nXoroshiro: MD5-derived identifiers; legacy: String.hashCode\nlegacy temperature/vegetation/base-noise special cases", fillcolor="#bbf7d0"];
-    shift_noises [label="SHIFT_X / SHIFT_Z noises", fillcolor="#bbf7d0"];
-    climate_noises [label="Shifted temperature, vegetation, continentalness, erosion\nplus ridge/weirdness", fillcolor="#bbf7d0"];
-    terrain_splines [label="TerrainProvider cubic splines\ncontinentalness + erosion + ridges/weirdness", fillcolor="#bbf7d0"];
-    offset_factor [label="offset + factor + jaggedness\ndepth = Y gradient + offset", fillcolor="#bbf7d0"];
-    initial_density [label="noiseGradientDensity(factor, depth + jaggedness)", fillcolor="#bbf7d0"];
-    sloped_cheese [label="sloped_cheese = initial density + base 3-D noise", fillcolor="#bbf7d0"];
-    entrances [label="Surface branch: min(sloped_cheese, 5 * entrances)\nentrances = spaghetti 3-D + roughness + entrance noise", fillcolor="#bbf7d0"];
-    underground [label="Underground caves\ncheese + layers + spaghetti 2-D + pillars", fillcolor="#bbf7d0"];
-    cave_choice [label="Range-select surface entrances vs underground cave graph", fillcolor="#bbf7d0"];
-    slide [label="Apply overworld top and bottom slides", fillcolor="#bbf7d0"];
-    post_process_density [label="Blend density -> multiply 0.64\n4 x 8 interpolation -> squeeze", fillcolor="#bbf7d0"];
-    noodle [label="Noodle cave density\ny-limited toggle + thickness + two ridges", fillcolor="#bbf7d0"];
-    beard [label="Beardifier density from terrain-adapting structure pieces\nBURY / BEARD_THIN / BEARD_BOX / ENCAPSULATE", fillcolor="#bbf7d0"];
-    final_density [label="final_density = min(post-processed caves, noodle) + beardifier", fillcolor="#86efac"];
+    noise_seed [label=<<B>World seed -&gt; positional RNG factories -&gt; keyed noises</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">Xoroshiro: MD5-derived identifiers; legacy: String.hashCode<BR ALIGN="LEFT"/>legacy temperature/vegetation/base-noise special cases<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    shift_noises [label=<<B>SHIFT_X / SHIFT_Z noises</B>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    climate_noises [label=<<B>Shifted temperature, vegetation, continentalness, erosion</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">plus ridge/weirdness<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    terrain_splines [label=<<B>TerrainProvider cubic splines</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">continentalness + erosion + ridges/weirdness<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    offset_factor [label=<<B>offset + factor + jaggedness</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">depth = Y gradient + offset<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    initial_density [label=<<B>noiseGradientDensity(factor, depth + jaggedness)</B>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    sloped_cheese [label=<<B>sloped_cheese = initial density + base 3-D noise</B>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    entrances [label=<<B>Surface branch: min(sloped_cheese, 5 * entrances)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">entrances = spaghetti 3-D + roughness + entrance noise<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    underground [label=<<B>Underground caves</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">cheese + layers + spaghetti 2-D + pillars<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    cave_choice [label=<<B>Range-select surface entrances vs underground cave graph</B>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    slide [label=<<B>Apply overworld top and bottom slides</B>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    post_process_density [label=<<B>Blend density -&gt; multiply 0.64</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">4 x 8 interpolation -&gt; squeeze<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    noodle [label=<<B>Noodle cave density</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">y-limited toggle + thickness + two ridges<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    beard [label=<<B>Beardifier density from terrain-adapting structure pieces</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#166f56">BURY / BEARD_THIN / BEARD_BOX / ENCAPSULATE<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#bbf7d0", color="#34d399", fontcolor="#065f46"];
+    final_density [label=<<B>final_density = min(post-processed caves, noodle) + beardifier</B>>,
+      fillcolor="#86efac", color="#22c55e", fontcolor="#14532d"];
 
-    random_state -> noise_seed [style=dashed];
+    random_state -> noise_seed [style=dashed, color="#8098b4", fontcolor="#64748b"];
     noise_seed -> shift_noises -> climate_noises -> terrain_splines -> offset_factor -> initial_density -> sloped_cheese;
     sloped_cheese -> entrances -> cave_choice;
     sloped_cheese -> underground -> cave_choice;
@@ -288,167 +539,330 @@ digraph Minecraft_26_3_Worldgen {
     beard -> final_density;
   }
 
+
   subgraph cluster_terrain {
-    label="7B. TERRAIN: density fill, aquifers, materials, and carvers";
-    color="#4ade80";
+    label=<<FONT POINT-SIZE="15"><B>7B. TERRAIN: density fill, aquifers, materials, and carvers</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#15803d";
+    color="#86efac";
     fillcolor="#f0fdf4";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    collect_biomes [label="Collect possible biome palette entries\nfrom center 3 x 3 terrain neighborhood", fillcolor="#dcfce7"];
-    create_blender [label="Blender.of(WorldGenRegion)\nempty for new world; old/new height, density, biome and carving blend for upgrades", fillcolor="#dcfce7"];
-    create_beardifier [label="Beardifier.forStructuresInChunk()\nresolve referenced terrain-adapting starts\ncollect nearby rigid pieces and jigsaw junctions", fillcolor="#dcfce7"];
-    create_noise_chunk [label="Create NoiseChunk\nDensityVolume + sampler caches + buffer pool + blender + beardifier", fillcolor="#dcfce7"];
-    create_aquifer [label="Create enabled Aquifer\nbarrier, floodedness, spread, lava, exclusion, preliminary surface\nor disabled global-fluid picker", fillcolor="#dcfce7"];
-    terrain_generator_path [shape=diamond, label="Generator terrain implementation?", fillcolor="#fee2e2"];
-    sample_volume [label="Sample final_density over 16 x generationHeight x 16 volume\ncompiled float samplers preserve cache/interpolation order", fillcolor="#dcfce7"];
-    other_density [label="Nether / End / custom NoiseRouter\nuse configured density graph, interpolation, aquifers,\ndefault block/fluid and generation height", fillcolor="#dcfce7"];
-    fill_loop [label="For z 0..15, x 0..15, y top..bottom", fillcolor="#dcfce7"];
-    aquifer_substance [label="Aquifer.computeSubstance(x,y,z,density)\nnull -> generator default block (solid / pressure barrier)\notherwise returned air / water / lava", fillcolor="#dcfce7"];
-    write_base [label="Write non-air block\nupdate OCEAN_FLOOR_WG + WORLD_SURFACE_WG\nmark fluid post-processing when required", fillcolor="#dcfce7"];
+    collect_biomes [label=<<B>Collect possible biome palette entries</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">from center 3 x 3 terrain neighborhood<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    create_blender [label=<<B>Blender.of(WorldGenRegion)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">empty for new world; old/new height, density, biome and carving blend for upgrades<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    create_beardifier [label=<<B>Beardifier.forStructuresInChunk()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">resolve referenced terrain-adapting starts<BR ALIGN="LEFT"/>collect nearby rigid pieces and jigsaw junctions<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    create_noise_chunk [label=<<B>Create NoiseChunk</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">DensityVolume + sampler caches + buffer pool + blender + beardifier<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    create_aquifer [label=<<B>Create enabled Aquifer</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">barrier, floodedness, spread, lava, exclusion, preliminary surface<BR ALIGN="LEFT"/>or disabled global-fluid picker<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    terrain_generator_path [shape=diamond, style="filled", label=<<B>Generator terrain implementation?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    sample_volume [label=<<B>Sample final_density over 16 x generationHeight x 16 volume</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">compiled float samplers preserve cache/interpolation order<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    other_density [label=<<B>Nether / End / custom NoiseRouter</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">use configured density graph, interpolation, aquifers,<BR ALIGN="LEFT"/>default block/fluid and generation height<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    fill_loop [label=<<B>For z 0..15, x 0..15, y top..bottom</B>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    aquifer_substance [label=<<B>Aquifer.computeSubstance(x,y,z,density)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">null -&gt; generator default block (solid / pressure barrier)<BR ALIGN="LEFT"/>otherwise returned air / water / lava<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    write_base [label=<<B>Write non-air block</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">update OCEAN_FLOOR_WG + WORLD_SURFACE_WG<BR ALIGN="LEFT"/>mark fluid post-processing when required<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
 
-    material_context [label="MaterialSystem.buildSurface()\ncompile material rule and create per-column context", fillcolor="#dcfce7"];
-    surface_columns [label="Scan each 16 x 16 column top-down\ntrack water, stone depth, surface depth, gradients, biome, temperature", fillcolor="#dcfce7"];
-    material_dispatch [shape=diamond, label="Configured material rule?\nSequence rules use first matching result per block", fillcolor="#fee2e2"];
-    other_material [label="Nether / End / custom material rules\nuse their own bedrock, surface and underground sequence", fillcolor="#dcfce7"];
-    bedrock_rule [label="Normal Overworld priority 1: bedrock floor", fillcolor="#dcfce7"];
-    copper_rule [label="2. Copper ore-vein material rule", fillcolor="#dcfce7"];
-    iron_rule [label="3. Iron ore-vein material rule", fillcolor="#dcfce7"];
-    surface_rule [label="4. Above preliminary surface\nbiome-specific grass/dirt/sand/gravel/terracotta/snow/ice/etc.\nplus badlands and frozen-ocean extensions", fillcolor="#dcfce7"];
-    underground_rule [label="5. Underground sulfur/deepslate rules", fillcolor="#dcfce7"];
+    material_context [label=<<B>MaterialSystem.buildSurface()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">compile material rule and create per-column context<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    surface_columns [label=<<B>Scan each 16 x 16 column top-down</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">track water, stone depth, surface depth, gradients, biome, temperature<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    material_dispatch [shape=diamond, style="filled", label=<<B>Configured material rule?</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9b2c2c">Sequence rules use first matching result per block<BR ALIGN="CENTER"/></FONT>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    other_material [label=<<B>Nether / End / custom material rules</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">use their own bedrock, surface and underground sequence<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    bedrock_rule [label=<<B>Normal Overworld priority 1: bedrock floor</B>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    copper_rule [label=<<B>2. Copper ore-vein material rule</B>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    iron_rule [label=<<B>3. Iron ore-vein material rule</B>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    surface_rule [label=<<B>4. Above preliminary surface</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">biome-specific grass/dirt/sand/gravel/terracotta/snow/ice/etc.<BR ALIGN="LEFT"/>plus badlands and frozen-ocean extensions<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    underground_rule [label=<<B>5. Underground sulfur/deepslate rules</B>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
 
-    carver_scan [label="For every source chunk in radius 8 (17 x 17)\nresolve source biome's cave carvers", fillcolor="#dcfce7"];
-    carver_seed [label="For each carver index\nWorldgenRandom(LegacyRandomSource)\nsetLargeFeatureSeed(seed + index, sourceX, sourceZ)", fillcolor="#dcfce7"];
-    carver_start [shape=diamond, label="WorldCarver.isStartChunk()?", fillcolor="#fee2e2"];
-    carver_geometry [label="Cave / extra-underground cave / canyon\nwrite requested geometry into CarvingMask", fillcolor="#dcfce7"];
-    apply_mask [label="Visit carving-mask vertical runs top-down\napply blender filter; skip UNCARVABLE blocks", fillcolor="#dcfce7"];
-    carved_substance [label="Aquifer.computeSubstance(..., density=0)\nnon-null: place air / water / lava; null: retain block\nrepair dirt exposed below grass/mycelium using topMaterial", fillcolor="#dcfce7"];
-    retrogen [label="If BelowZeroRetrogen\nreplace old bedrock + apply recorded bedrock-hole mask", fillcolor="#e2e8f0"];
-    prime_heightmaps [label="Prime final heightmaps\nWORLD_SURFACE, OCEAN_FLOOR, MOTION_BLOCKING,\nMOTION_BLOCKING_NO_LEAVES", fillcolor="#dcfce7"];
-    terrain_alternatives [label="Alternative generators\nflat: fill configured layers\ndebug: TERRAIN is a no-op", fillcolor="#e2e8f0"];
+    carver_scan [label=<<B>For every source chunk in radius 8 (17 x 17)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">resolve source biome's cave carvers<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    carver_seed [label=<<B>For each carver index</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">WorldgenRandom(LegacyRandomSource)<BR ALIGN="LEFT"/>setLargeFeatureSeed(seed + index, sourceX, sourceZ)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    carver_start [shape=diamond, style="filled", label=<<B>WorldCarver.isStartChunk()?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    carver_geometry [label=<<B>Cave / extra-underground cave / canyon</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">write requested geometry into CarvingMask<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    apply_mask [label=<<B>Visit carving-mask vertical runs top-down</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">apply blender filter; skip UNCARVABLE blocks<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    carved_substance [label=<<B>Aquifer.computeSubstance(..., density=0)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">non-null: place air / water / lava; null: retain block<BR ALIGN="LEFT"/>repair dirt exposed below grass/mycelium using topMaterial<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    retrogen [label=<<B>If BelowZeroRetrogen</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">replace old bedrock + apply recorded bedrock-hole mask<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    prime_heightmaps [label=<<B>Prime final heightmaps</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">WORLD_SURFACE, OCEAN_FLOOR, MOTION_BLOCKING,<BR ALIGN="LEFT"/>MOTION_BLOCKING_NO_LEAVES<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    terrain_alternatives [label=<<B>Alternative generators</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">flat: fill configured layers<BR ALIGN="LEFT"/>debug: TERRAIN is a no-op<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
 
     biome_release -> terrain_generator_path [lhead=cluster_terrain];
-    terrain_generator_path -> collect_biomes [label="noise"];
-    terrain_generator_path -> terrain_alternatives [label="flat/debug"];
+    terrain_generator_path -> collect_biomes [label=<<I>noise</I>>];
+    terrain_generator_path -> terrain_alternatives [label=<<I>flat/debug</I>>];
     collect_biomes -> create_blender -> create_beardifier -> create_noise_chunk -> create_aquifer -> sample_volume;
-    final_density -> sample_volume [style=dashed, label="Overworld settings"];
-    random_state -> other_density [style=dashed];
-    other_density -> sample_volume [style=dashed, label="other noise settings"];
+    final_density -> sample_volume [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>Overworld settings</I>>];
+    random_state -> other_density [style=dashed, color="#8098b4", fontcolor="#64748b"];
+    other_density -> sample_volume [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>other noise settings</I>>];
     sample_volume -> fill_loop -> aquifer_substance -> write_base -> material_context -> surface_columns;
     surface_columns -> material_dispatch;
-    material_dispatch -> bedrock_rule [label="normal Overworld"];
-    material_dispatch -> other_material [label="other settings"];
-    bedrock_rule -> copper_rule -> iron_rule -> surface_rule -> underground_rule [label="if no match"];
-    material_dispatch -> carver_scan [label="material pass complete"];
+    material_dispatch -> bedrock_rule [label=<<I>normal Overworld</I>>];
+    material_dispatch -> other_material [label=<<I>other settings</I>>];
+    bedrock_rule -> copper_rule -> iron_rule -> surface_rule -> underground_rule [label=<<I>if no match</I>>];
+    material_dispatch -> carver_scan [label=<<I>material pass complete</I>>];
     carver_scan -> carver_seed -> carver_start;
-    carver_start -> carver_geometry [label="yes"];
-    carver_start -> carver_scan [label="no / next"];
-    carver_geometry -> carver_scan [label="next carver/source"];
-    carver_scan -> apply_mask [label="all sources complete"];
+    carver_start -> carver_geometry [label=<<I>yes</I>>];
+    carver_start -> carver_scan [label=<<I>no / next</I>>];
+    carver_geometry -> carver_scan [label=<<I>next carver/source</I>>];
+    carver_scan -> apply_mask [label=<<I>all sources complete</I>>];
     apply_mask -> carved_substance -> retrogen -> prime_heightmaps;
-    prime_heightmaps -> status_commit [style=dotted, label="persist TERRAIN"];
-    flat_generator -> terrain_alternatives [style=dashed];
-    debug_generator -> terrain_alternatives [style=dashed];
-    terrain_alternatives -> prime_heightmaps [style=dashed];
+    prime_heightmaps -> status_commit [style=dotted, color="#b45309", fontcolor="#b45309", label=<<I>persist TERRAIN</I>>];
+    flat_generator -> terrain_alternatives [style=dashed, color="#8098b4", fontcolor="#64748b"];
+    debug_generator -> terrain_alternatives [style=dashed, color="#8098b4", fontcolor="#64748b"];
+    terrain_alternatives -> prime_heightmaps [style=dashed, color="#8098b4", fontcolor="#64748b"];
   }
+
 
   subgraph cluster_features {
-    label="8. FEATURES: structure blocks and biome decoration";
-    color="#4ade80";
+    label=<<FONT POINT-SIZE="15"><B>8. FEATURES: structure blocks and biome decoration</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#15803d";
+    color="#86efac";
     fillcolor="#f0fdf4";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    feature_prepare [label="WorldGenRegion with block-write radius 1\ncenter + eight neighbors may be modified", fillcolor="#dcfce7"];
-    feature_generator_path [shape=diamond, label="Decoration implementation / debug flags?", fillcolor="#fee2e2"];
-    debug_features [label="DebugLevelSource.applyBiomeDecoration()\nbarrier plane at Y=60 + block-state display grid at Y=70", fillcolor="#e2e8f0"];
-    feature_sorter [label="FeatureSorter precomputes stable per-step ordering\nfrom every possible biome; rejects dependency cycles", fillcolor="#dcfce7"];
-    decoration_seed [label="setDecorationSeed(worldSeed, chunk min X, chunk min Z)\ncollect actual biome palette entries from center 3 x 3", fillcolor="#dcfce7"];
+    feature_prepare [label=<<B>WorldGenRegion with block-write radius 1</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">center + eight neighbors may be modified<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    feature_generator_path [shape=diamond, style="filled", label=<<B>Decoration implementation / debug flags?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    debug_features [label=<<B>DebugLevelSource.applyBiomeDecoration()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">barrier plane at Y=60 + block-state display grid at Y=70<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    feature_sorter [label=<<B>FeatureSorter precomputes stable per-step ordering</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">from every possible biome; rejects dependency cycles<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    decoration_seed [label=<<B>setDecorationSeed(worldSeed, chunk min X, chunk min Z)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">collect actual biome palette entries from center 3 x 3<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
     decoration_stages [
-      shape=record,
-      style="filled",
+      shape=box,
+      style="rounded,filled",
       fillcolor="#dcfce7",
-      label="{Decoration stages in exact ordinal order|0 RAW_GENERATION|1 LAKES|2 LOCAL_MODIFICATIONS|3 UNDERGROUND_STRUCTURES|4 SURFACE_STRUCTURES|5 STRONGHOLDS|6 UNDERGROUND_ORES|7 UNDERGROUND_DECORATION|8 FLUID_SPRINGS|9 VEGETAL_DECORATION|10 TOP_LAYER_MODIFICATION}"
+      color="#4ade80",
+      margin="0.06,0.05",
+      label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#dcfce7">
+        <TR><TD COLSPAN="2" ALIGN="CENTER"><FONT POINT-SIZE="10.5" COLOR="#14532d"><B>Decoration stages in exact ordinal order</B></FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>0</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">RAW_GENERATION</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>1</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">LAKES</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>2</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">LOCAL_MODIFICATIONS</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>3</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">UNDERGROUND_STRUCTURES</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>4</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">SURFACE_STRUCTURES</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>5</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">STRONGHOLDS</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>6</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">UNDERGROUND_ORES</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>7</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">UNDERGROUND_DECORATION</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>8</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">FLUID_SPRINGS</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>9</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">VEGETAL_DECORATION</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#4d7c0f"><B>10</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#14532d">TOP_LAYER_MODIFICATION</FONT></TD></TR>
+        </TABLE>>
     ];
-    each_stage [label="For each decoration stage\nstructures first, then placed features", fillcolor="#dcfce7"];
-    stage_structures [shape=diamond, label="Structures enabled?", fillcolor="#fee2e2"];
-    structure_feature_seed [label="For each registered structure in this stage\nsetFeatureSeed(decorationSeed, structureIndex, stageIndex)", fillcolor="#dcfce7"];
-    resolve_starts [label="Resolve center chunk's referenced valid starts", fillcolor="#dcfce7"];
-    place_pieces [label="StructureStart.placeInChunk()\npostProcess intersecting pieces in stored order\nthen Structure.afterPlace()", fillcolor="#dcfce7"];
-    collect_features [label="Union this stage's PlacedFeatures from actual nearby biomes\nmap by FeatureSorter identity index + sort ascending", fillcolor="#dcfce7"];
-    placed_feature_seed [label="For each selected feature index\nsetFeatureSeed(decorationSeed, featureIndex, stageIndex)", fillcolor="#dcfce7"];
-    modifiers [label="FeaturePlacer\ndepth-first placement-modifier chain\nfilters, count, square, height range/map, biome, offsets, scans", fillcolor="#dcfce7"];
-    feature_place [label="Feature.place() at every terminal position\nmay invoke nested PlacedFeatures with the same random stream", fillcolor="#dcfce7"];
-    neighbor_writes [label="WorldGenRegion.setBlock()\nupdate chunk sections/heightmaps/POI/block entities\nqueue shape/fluid post-processing", fillcolor="#dcfce7"];
-    next_stage [shape=diamond, label="More decoration stages?", fillcolor="#fee2e2"];
-    blending_ticks [label="Blender.generateBorderTicks()\nmark leaves/fluids at old-new generation borders", fillcolor="#dcfce7"];
+    each_stage [label=<<B>For each decoration stage</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">structures first, then placed features<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    stage_structures [shape=diamond, style="filled", label=<<B>Structures enabled?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    structure_feature_seed [label=<<B>For each registered structure in this stage</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">setFeatureSeed(decorationSeed, structureIndex, stageIndex)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    resolve_starts [label=<<B>Resolve center chunk's referenced valid starts</B>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    place_pieces [label=<<B>StructureStart.placeInChunk()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">postProcess intersecting pieces in stored order<BR ALIGN="LEFT"/>then Structure.afterPlace()<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    collect_features [label=<<B>Union this stage's PlacedFeatures from actual nearby biomes</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">map by FeatureSorter identity index + sort ascending<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    placed_feature_seed [label=<<B>For each selected feature index</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">setFeatureSeed(decorationSeed, featureIndex, stageIndex)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    modifiers [label=<<B>FeaturePlacer</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">depth-first placement-modifier chain<BR ALIGN="LEFT"/>filters, count, square, height range/map, biome, offsets, scans<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    feature_place [label=<<B>Feature.place() at every terminal position</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">may invoke nested PlacedFeatures with the same random stream<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    neighbor_writes [label=<<B>WorldGenRegion.setBlock()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">update chunk sections/heightmaps/POI/block entities<BR ALIGN="LEFT"/>queue shape/fluid post-processing<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
+    next_stage [shape=diamond, style="filled", label=<<B>More decoration stages?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    blending_ticks [label=<<B>Blender.generateBorderTicks()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#2f6b42">mark leaves/fluids at old-new generation borders<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#dcfce7", color="#4ade80", fontcolor="#14532d"];
 
     prime_heightmaps -> feature_generator_path [lhead=cluster_features];
-    feature_generator_path -> feature_prepare [label="normal"];
-    feature_generator_path -> debug_features [label="debug generator"];
-    feature_generator_path -> blending_ticks [label="features globally disabled"];
+    feature_generator_path -> feature_prepare [label=<<I>normal</I>>];
+    feature_generator_path -> debug_features [label=<<I>debug generator</I>>];
+    feature_generator_path -> blending_ticks [label=<<I>features globally disabled</I>>];
     debug_features -> blending_ticks;
     feature_prepare -> feature_sorter -> decoration_seed -> decoration_stages -> each_stage -> stage_structures;
-    stage_structures -> structure_feature_seed [label="yes"];
+    stage_structures -> structure_feature_seed [label=<<I>yes</I>>];
     structure_feature_seed -> resolve_starts -> place_pieces -> collect_features;
-    stage_structures -> collect_features [label="no"];
+    stage_structures -> collect_features [label=<<I>no</I>>];
     collect_features -> placed_feature_seed -> modifiers -> feature_place -> neighbor_writes -> next_stage;
-    collect_features -> next_stage [label="no features in this stage"];
-    modifiers -> next_stage [label="all placements rejected / feature loop complete"];
-    neighbor_writes -> placed_feature_seed [label="next feature, if any"];
-    next_stage -> each_stage [label="yes"];
-    next_stage -> blending_ticks [label="no"];
-    blending_ticks -> status_commit [style=dotted, label="persist FEATURES"];
+    collect_features -> next_stage [label=<<I>no features in this stage</I>>];
+    modifiers -> next_stage [label=<<I>all placements rejected / feature loop complete</I>>];
+    neighbor_writes -> placed_feature_seed [label=<<I>next feature, if any</I>>];
+    next_stage -> each_stage [label=<<I>yes</I>>];
+    next_stage -> blending_ticks [label=<<I>no</I>>];
+    blending_ticks -> status_commit [style=dotted, color="#b45309", fontcolor="#b45309", label=<<I>persist FEATURES</I>>];
   }
+
 
   subgraph cluster_light_spawn_full {
-    label="9. INITIALIZE_LIGHT, LIGHT, SPAWN, and generation FULL";
-    color="#fbbf24";
+    label=<<FONT POINT-SIZE="15"><B>9. INITIALIZE_LIGHT, LIGHT, SPAWN, and generation FULL</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#b45309";
+    color="#fcd34d";
     fillcolor="#fffbeb";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    initialize_light [label="INITIALIZE_LIGHT\nrebuild skylight sources; attach ThreadedLevelLightEngine\nmark non-air sections; retain valid saved light when possible", fillcolor="#fef3c7"];
-    light [label="LIGHT\nset lightCorrect=false\npropagate sky/block sources and run queued updates\nset lightCorrect=true", fillcolor="#fef3c7"];
-    spawn_needed [shape=diamond, label="SPAWN missing from persisted status?", fillcolor="#fee2e2"];
-    spawn_status [label="Generate SPAWN\nnoise generator only, unless retrogen or mob generation disabled:\nNaturalSpawner.spawnMobsForChunkGeneration()\nflat/debug: no original-mob generation", fillcolor="#fef3c7"];
-    full_branch [shape=diamond, label="FULL input type?", fillcolor="#fee2e2"];
-    unwrap_full [label="Persisted full chunk\nunwrap ImposterProtoChunk -> existing LevelChunk", fillcolor="#e2e8f0"];
-    convert_full [label="Generated chunk\nProtoChunk -> LevelChunk\ntransfer sections, heightmaps, structures, ticks, block entities", fillcolor="#fef3c7"];
-    activate_level_chunk [label="Activate LevelChunk\nset full-status supplier; run post-load; loaded=true\nregister block entities, event listeners, tickers, tick containers\ninstall unsaved listener", fillcolor="#fef3c7"];
-    generation_full [label="ChunkStatus.FULL future complete", fillcolor="#fde68a"];
+    initialize_light [label=<<B>INITIALIZE_LIGHT</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">rebuild skylight sources; attach ThreadedLevelLightEngine<BR ALIGN="LEFT"/>mark non-air sections; retain valid saved light when possible<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    light [label=<<B>LIGHT</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">set lightCorrect=false<BR ALIGN="LEFT"/>propagate sky/block sources and run queued updates<BR ALIGN="LEFT"/>set lightCorrect=true<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    spawn_needed [shape=diamond, style="filled", label=<<B>SPAWN missing from persisted status?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    spawn_status [label=<<B>Generate SPAWN</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">noise generator only, unless retrogen or mob generation disabled:<BR ALIGN="LEFT"/>NaturalSpawner.spawnMobsForChunkGeneration()<BR ALIGN="LEFT"/>flat/debug: no original-mob generation<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    full_branch [shape=diamond, style="filled", label=<<B>FULL input type?</B>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    unwrap_full [label=<<B>Persisted full chunk</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">unwrap ImposterProtoChunk -&gt; existing LevelChunk<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    convert_full [label=<<B>Generated chunk</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">ProtoChunk -&gt; LevelChunk<BR ALIGN="LEFT"/>transfer sections, heightmaps, structures, ticks, block entities<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    activate_level_chunk [label=<<B>Activate LevelChunk</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9a6b18">set full-status supplier; run post-load; loaded=true<BR ALIGN="LEFT"/>register block entities, event listeners, tickers, tick containers<BR ALIGN="LEFT"/>install unsaved listener<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#fef3c7", color="#f0b429", fontcolor="#854d0e"];
+    generation_full [label=<<B>ChunkStatus.FULL future complete</B>>,
+      fillcolor="#fde68a", color="#d97706", fontcolor="#7c2d12"];
 
-    blending_ticks -> initialize_light [label="next status"];
-    initialize_light -> status_commit [style=dotted, label="persist INITIALIZE_LIGHT"];
+    blending_ticks -> initialize_light [label=<<I>next status</I>>];
+    initialize_light -> status_commit [style=dotted, color="#b45309", fontcolor="#b45309", label=<<I>persist INITIALIZE_LIGHT</I>>];
     initialize_light -> light;
-    light -> status_commit [style=dotted, label="persist LIGHT"];
+    light -> status_commit [style=dotted, color="#b45309", fontcolor="#b45309", label=<<I>persist LIGHT</I>>];
     light -> spawn_needed;
-    spawn_needed -> spawn_status [label="yes"];
-    spawn_needed -> full_branch [label="no; loading SPAWN is pass-through"];
-    spawn_status -> status_commit [style=dotted, label="persist SPAWN"];
+    spawn_needed -> spawn_status [label=<<I>yes</I>>];
+    spawn_needed -> full_branch [label=<<I>no; loading SPAWN is pass-through</I>>];
+    spawn_status -> status_commit [style=dotted, color="#b45309", fontcolor="#b45309", label=<<I>persist SPAWN</I>>];
     spawn_status -> full_branch;
-    loading_pyramid -> initialize_light [style=dashed, label="loaded light path"];
-    full_branch -> unwrap_full [label="ImposterProtoChunk"];
-    full_branch -> convert_full [label="ProtoChunk"];
+    loading_pyramid -> initialize_light [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>loaded light path</I>>];
+    full_branch -> unwrap_full [label=<<I>ImposterProtoChunk</I>>];
+    full_branch -> convert_full [label=<<I>ProtoChunk</I>>];
     unwrap_full -> activate_level_chunk;
     convert_full -> activate_level_chunk -> generation_full;
-    generation_full -> spawn_candidate [style=dashed, label="global spawn search resumes"];
+    generation_full -> spawn_candidate [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>global spawn search resumes</I>>];
   }
 
+
   subgraph cluster_runtime {
-    label="10. Ticket-driven runtime promotion and active gameplay";
+    label=<<FONT POINT-SIZE="15"><B>10. Ticket-driven runtime promotion and active gameplay</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#6d28d9";
     color="#c4b5fd";
     fillcolor="#f5f3ff";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    holder_update [label="Ticket level changes\nChunkHolder.updateHighestAllowedStatus() + updateFutures()", fillcolor="#ede9fe"];
-    accessible [label="FullChunkStatus.FULL (ticket level 33)\nprepareAccessibleChunk: center FULL + radius-1 status dependencies\nruntime-accessible chunk; entity storage becomes TRACKED", fillcolor="#ede9fe"];
-    ticking_ready [label="prepareTickingChunk() requires 3 x 3 FULL neighborhood", fillcolor="#ede9fe"];
-    postprocess_generation [label="LevelChunk.postProcessGeneration()\nrun deferred fluid/block neighbor-shape updates\npromote pending block entities + apply upgrade data", fillcolor="#ede9fe"];
-    unpack_ticks [label="ServerLevel.startTickingChunk()\nunpack saved block/fluid ticks to absolute times", fillcolor="#ede9fe"];
-    block_ticking [label="FullChunkStatus.BLOCK_TICKING (ticket level 32)\nchunk eligible for initial transmission and block simulation", fillcolor="#ddd6fe"];
-    entity_ready [label="prepareEntityTickingChunk() requires 5 x 5 FULL neighborhood", fillcolor="#ede9fe"];
-    entity_ticking [label="FullChunkStatus.ENTITY_TICKING (ticket level <= 31)\nentity manager visibility = TICKING", fillcolor="#ddd6fe"];
-    entity_load [label="Load modern entities from entities region files\nstart tracking -> ChunkMap.TrackedEntity\nstart ticking -> EntityTickList", fillcolor="#ede9fe"];
-    simulation_gate [label="Actual entity, block, and scheduled ticks\nalso gated by simulation distance and game rules", fillcolor="#ede9fe"];
-    playable_server [label="Authoritative server world is playable\nblocks, fluids, block entities, entities, scheduled ticks", fillcolor="#ddd6fe"];
+    holder_update [label=<<B>Ticket level changes</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">ChunkHolder.updateHighestAllowedStatus() + updateFutures()<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    accessible [label=<<B>FullChunkStatus.FULL (ticket level 33)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">prepareAccessibleChunk: center FULL + radius-1 status dependencies<BR ALIGN="LEFT"/>runtime-accessible chunk; entity storage becomes TRACKED<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    ticking_ready [label=<<B>prepareTickingChunk() requires 3 x 3 FULL neighborhood</B>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    postprocess_generation [label=<<B>LevelChunk.postProcessGeneration()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">run deferred fluid/block neighbor-shape updates<BR ALIGN="LEFT"/>promote pending block entities + apply upgrade data<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    unpack_ticks [label=<<B>ServerLevel.startTickingChunk()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">unpack saved block/fluid ticks to absolute times<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    block_ticking [label=<<B>FullChunkStatus.BLOCK_TICKING (ticket level 32)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">chunk eligible for initial transmission and block simulation<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ddd6fe", color="#8b5cf6", fontcolor="#4c1d95"];
+    entity_ready [label=<<B>prepareEntityTickingChunk() requires 5 x 5 FULL neighborhood</B>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    entity_ticking [label=<<B>FullChunkStatus.ENTITY_TICKING (ticket level &lt;= 31)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">entity manager visibility = TICKING<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ddd6fe", color="#8b5cf6", fontcolor="#4c1d95"];
+    entity_load [label=<<B>Load modern entities from entities region files</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">start tracking -&gt; ChunkMap.TrackedEntity<BR ALIGN="LEFT"/>start ticking -&gt; EntityTickList<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    simulation_gate [label=<<B>Actual entity, block, and scheduled ticks</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">also gated by simulation distance and game rules<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    playable_server [label=<<B>Authoritative server world is playable</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">blocks, fluids, block entities, entities, scheduled ticks<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ddd6fe", color="#8b5cf6", fontcolor="#4c1d95"];
 
     generation_full -> holder_update [lhead=cluster_runtime];
     holder_update -> accessible;
@@ -459,132 +873,290 @@ digraph Minecraft_26_3_Worldgen {
     block_ticking -> playable_server;
   }
 
+
   subgraph cluster_save {
-    label="11. Parallel persistence path";
+    label=<<FONT POINT-SIZE="15"><B>11. Parallel persistence path</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#475569";
     color="#cbd5e1";
     fillcolor="#f1f5f9";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    mark_unsaved [label="Chunk mutations mark chunk unsaved\nunsaved listener queues eager save", fillcolor="#e2e8f0"];
-    save_trigger [label="Periodic eager save, save-all, or unload", fillcolor="#e2e8f0"];
-    save_snapshot [label="SerializableChunkData.copyOf()\nsnapshot status, sections, light, heightmaps, structures,\nblock entities, post-processing, and ticks", fillcolor="#e2e8f0"];
-    save_nbt [label="SerializableChunkData.write() -> NBT", fillcolor="#e2e8f0"];
-    io_worker [label="IOWorker coalesces asynchronous pending writes", fillcolor="#e2e8f0"];
-    region_write [label="RegionFileStorage / RegionFile\ncompress + allocate sectors + update header/timestamp\nregion/r.x.z.mca", fillcolor="#e2e8f0"];
-    entity_save [label="Modern entities saved separately\nentities/r.x.z.mca", fillcolor="#e2e8f0"];
-    world_save [label="World metadata and saved data\nlevel.dat, data/minecraft/world_gen_settings.dat, tickets, etc.\nplayerdata/<uuid>.dat; POI in poi/r.x.z.mca", fillcolor="#e2e8f0"];
+    mark_unsaved [label=<<B>Chunk mutations mark chunk unsaved</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">unsaved listener queues eager save<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    save_trigger [label=<<B>Periodic eager save, save-all, or unload</B>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    save_snapshot [label=<<B>SerializableChunkData.copyOf()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">snapshot status, sections, light, heightmaps, structures,<BR ALIGN="LEFT"/>block entities, post-processing, and ticks<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    save_nbt [label=<<B>SerializableChunkData.write() -&gt; NBT</B>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    io_worker [label=<<B>IOWorker coalesces asynchronous pending writes</B>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    region_write [label=<<B>RegionFileStorage / RegionFile</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">compress + allocate sectors + update header/timestamp<BR ALIGN="LEFT"/>region/r.x.z.mca<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    entity_save [label=<<B>Modern entities saved separately</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">entities/r.x.z.mca<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
+    world_save [label=<<B>World metadata and saved data</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#475569">level.dat, data/minecraft/world_gen_settings.dat, tickets, etc.<BR ALIGN="LEFT"/>playerdata/&lt;uuid&gt;.dat; POI in poi/r.x.z.mca<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#e2e8f0", color="#94a3b8", fontcolor="#334155"];
 
-    convert_full -> mark_unsaved [style=dashed];
-    status_commit -> mark_unsaved [style=dashed];
+    convert_full -> mark_unsaved [style=dashed, color="#8098b4", fontcolor="#64748b"];
+    status_commit -> mark_unsaved [style=dashed, color="#8098b4", fontcolor="#64748b"];
     mark_unsaved -> save_trigger -> save_snapshot -> save_nbt -> io_worker -> region_write;
-    entity_load -> entity_save [style=dashed];
-    save_trigger -> world_save [style=dashed, label="world/player save lifecycle"];
+    entity_load -> entity_save [style=dashed, color="#8098b4", fontcolor="#64748b"];
+    save_trigger -> world_save [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>world/player save lifecycle</I>>];
   }
 
+
   subgraph cluster_network {
-    label="12. Player tracking and server-to-client chunk delivery";
+    label=<<FONT POINT-SIZE="15"><B>12. Player tracking and server-to-client chunk delivery</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#6d28d9";
     color="#c4b5fd";
     fillcolor="#f5f3ff";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    connection_start [label="Client connects to ready server\nsingleplayer: local in-memory connection\nmultiplayer: remote connection + login/authentication as configured", fillcolor="#ede9fe"];
-    configure_client [label="Configuration protocol\nsynchronize enabled features, registries/tags and known packs\noptional server resource pack / code of conduct tasks", fillcolor="#ede9fe"];
-    prepare_player [label="PrepareSpawnTask\nload player data: saved dimension/position/rotation, or\nPlayerSpawnFinder.findSpawn near global spawn\nrespawn radius + border + collision/liquid checks", fillcolor="#ede9fe"];
-    player_spawn_ticket [label="PLAYER_SPAWN ticket: radius 3\naddTicketAndLoadWithRadius(); wait for chunk future", fillcolor="#ede9fe"];
-    join_world [label="JoinWorldTask / finish-configuration acknowledgement\nwaitForEntities(spawnChunk, 3); create ServerPlayer\nload saved state, snap to chosen position\nPlayerList.placeNewPlayer()", fillcolor="#ede9fe"];
-    login_play [label="Send play Login + abilities/inventory/world state\ninitial position teleport; add player to ServerLevel\nLEVEL_CHUNKS_LOAD_START game event", fillcolor="#ede9fe"];
-    client_level_init [label="ClientPacketListener.handleLogin()\ncreate ClientLevel + LocalPlayer + game mode\nstart LevelLoadTracker / loading screen\napply initial teleport and send AcceptTeleportation", fillcolor="#ede9fe"];
-    player_view [label="Player joins/moves or view distance changes\nChunkMap.updateChunkTracking() + distance-manager player tracking", fillcolor="#ede9fe"];
-    tracking_diff [label="ChunkTrackingView.difference()\nnewly entered and exited chunks", fillcolor="#ede9fe"];
-    pending_send [label="When BLOCK_TICKING/send-sync ready\nPlayerChunkSender.pendingChunks", fillcolor="#ede9fe"];
-    send_batch [label="Per server tick: sendNextChunks()\nquota/backpressure + nearest pending chunks\nChunkBatchStart", fillcolor="#ede9fe"];
-    chunk_packet [label="ClientboundLevelChunkWithLightPacket", fillcolor="#ddd6fe"];
-    chunk_payload [label="Chunk payload\nheightmaps + every section's block/biome palettes\nblock-entity update tags", fillcolor="#ede9fe"];
-    light_payload [label="Light payload\nsky/block masks + empty masks + 2048-byte DataLayers", fillcolor="#ede9fe"];
-    packet_encode [label="Connection sends packets\nremote: STREAM_CODEC -> PacketEncoder -> Netty bytes\nlocal memory connection: packet objects bypass byte codecs", fillcolor="#ede9fe"];
-    entity_packets [label="Tracked entities sent separately\nspawn + metadata + attributes + equipment + passengers", fillcolor="#ede9fe"];
-    batch_finished [label="ChunkBatchFinished(count) after batch\nclient ChunkBatchSizeCalculator measures receive time\nServerboundChunkBatchReceivedPacket(desiredChunksPerTick)", fillcolor="#ede9fe"];
-    forget_chunk [label="Exited view: cancel pending send or send ForgetLevelChunk\nclient drops chunk, light and render-section state", fillcolor="#ede9fe"];
+    connection_start [label=<<B>Client connects to ready server</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">singleplayer: local in-memory connection<BR ALIGN="LEFT"/>multiplayer: remote connection + login/authentication as configured<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    configure_client [label=<<B>Configuration protocol</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">synchronize enabled features, registries/tags and known packs<BR ALIGN="LEFT"/>optional server resource pack / code of conduct tasks<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    prepare_player [label=<<B>PrepareSpawnTask</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">load player data: saved dimension/position/rotation, or<BR ALIGN="LEFT"/>PlayerSpawnFinder.findSpawn near global spawn<BR ALIGN="LEFT"/>respawn radius + border + collision/liquid checks<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    player_spawn_ticket [label=<<B>PLAYER_SPAWN ticket: radius 3</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">addTicketAndLoadWithRadius(); wait for chunk future<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    join_world [label=<<B>JoinWorldTask / finish-configuration acknowledgement</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">waitForEntities(spawnChunk, 3); create ServerPlayer<BR ALIGN="LEFT"/>load saved state, snap to chosen position<BR ALIGN="LEFT"/>PlayerList.placeNewPlayer()<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    login_play [label=<<B>Send play Login + abilities/inventory/world state</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">initial position teleport; add player to ServerLevel<BR ALIGN="LEFT"/>LEVEL_CHUNKS_LOAD_START game event<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    client_level_init [label=<<B>ClientPacketListener.handleLogin()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">create ClientLevel + LocalPlayer + game mode<BR ALIGN="LEFT"/>start LevelLoadTracker / loading screen<BR ALIGN="LEFT"/>apply initial teleport and send AcceptTeleportation<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    player_view [label=<<B>Player joins/moves or view distance changes</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">ChunkMap.updateChunkTracking() + distance-manager player tracking<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    tracking_diff [label=<<B>ChunkTrackingView.difference()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">newly entered and exited chunks<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    pending_send [label=<<B>When BLOCK_TICKING/send-sync ready</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">PlayerChunkSender.pendingChunks<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    send_batch [label=<<B>Per server tick: sendNextChunks()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">quota/backpressure + nearest pending chunks<BR ALIGN="LEFT"/>ChunkBatchStart<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    chunk_packet [label=<<B>ClientboundLevelChunkWithLightPacket</B>>,
+      fillcolor="#ddd6fe", color="#8b5cf6", fontcolor="#4c1d95"];
+    chunk_payload [label=<<B>Chunk payload</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">heightmaps + every section's block/biome palettes<BR ALIGN="LEFT"/>block-entity update tags<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    light_payload [label=<<B>Light payload</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">sky/block masks + empty masks + 2048-byte DataLayers<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    packet_encode [label=<<B>Connection sends packets</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">remote: STREAM_CODEC -&gt; PacketEncoder -&gt; Netty bytes<BR ALIGN="LEFT"/>local memory connection: packet objects bypass byte codecs<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    entity_packets [label=<<B>Tracked entities sent separately</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">spawn + metadata + attributes + equipment + passengers<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    batch_finished [label=<<B>ChunkBatchFinished(count) after batch</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">client ChunkBatchSizeCalculator measures receive time<BR ALIGN="LEFT"/>ServerboundChunkBatchReceivedPacket(desiredChunksPerTick)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    forget_chunk [label=<<B>Exited view: cancel pending send or send ForgetLevelChunk</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">client drops chunk, light and render-section state<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
 
     prepare_levels -> connection_start;
     connection_start -> configure_client -> prepare_player -> player_spawn_ticket;
-    prepare_player -> request_sources [style=dashed, label="SPAWN_SEARCH tickets when needed"];
-    player_spawn_ticket -> request_sources [style=dashed, label="load surrounding chunks"];
-    player_spawn_ticket -> join_world [label="spawn chunks ready"];
+    prepare_player -> request_sources [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>SPAWN_SEARCH tickets when needed</I>>];
+    player_spawn_ticket -> request_sources [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>load surrounding chunks</I>>];
+    player_spawn_ticket -> join_world [label=<<I>spawn chunks ready</I>>];
     join_world -> login_play;
     login_play -> client_level_init;
     login_play -> player_view;
-    player_view -> request_sources [style=dashed, label="player tickets drive generation"];
+    player_view -> request_sources [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>player tickets drive generation</I>>];
     player_view -> tracking_diff;
-    tracking_diff -> pending_send [label="entered view; once send-ready"];
-    tracking_diff -> forget_chunk [label="exited view"];
-    block_ticking -> pending_send [label="onChunkReadyToSend"];
+    tracking_diff -> pending_send [label=<<I>entered view; once send-ready</I>>];
+    tracking_diff -> forget_chunk [label=<<I>exited view</I>>];
+    block_ticking -> pending_send [label=<<I>onChunkReadyToSend</I>>];
     pending_send -> send_batch -> chunk_packet;
     chunk_packet -> chunk_payload -> packet_encode;
     chunk_packet -> light_payload -> packet_encode;
     entity_load -> entity_packets -> packet_encode;
-    send_batch -> batch_finished [label="after all chunk packets"];
-    batch_finished -> send_batch [style=dashed, label="ack releases backpressure / adjusts quota"];
+    send_batch -> batch_finished [label=<<I>after all chunk packets</I>>];
+    batch_finished -> send_batch [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>ack releases backpressure / adjusts quota</I>>];
   }
 
+
   subgraph cluster_client {
-    label="13. Client decode, light installation, meshing, GPU upload, and rendering";
+    label=<<FONT POINT-SIZE="15"><B>13. Client decode, light installation, meshing, GPU upload, and rendering</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#6d28d9";
     color="#c4b5fd";
     fillcolor="#f5f3ff";
     style="rounded,filled";
+    penwidth=1.8;
+    margin=14;
 
-    packet_decode [label="Remote PacketDecoder (local: packet object)\nClientPacketListener.handleLevelChunkWithLight() on client thread", fillcolor="#ede9fe"];
-    client_cache [label="ClientChunkCache.replaceWithPacketData()\ncreate or replace client LevelChunk", fillcolor="#ede9fe"];
-    read_sections [label="Read block-state and biome palettes into sections\ninstall heightmaps and initialize light-source metadata", fillcolor="#ede9fe"];
-    client_block_entities [label="Create client block entities\napply update tags + install client tickers", fillcolor="#ede9fe"];
-    install_light [label="Queue and apply sky/block DataLayers\nenable chunk light + update section emptiness", fillcolor="#ede9fe"];
-    mark_dirty [label="Mark chunk and neighboring sections dirty", fillcolor="#ede9fe"];
-    visibility [label="LevelExtractor + SectionOcclusionGraph\nloaded/empty sets, occlusion propagation, frustum-visible sections", fillcolor="#ede9fe"];
-    neighbor_gate [shape=diamond, label="Initial section mesh has all 8 horizontal\nneighbor columns and light enabled?", fillcolor="#fee2e2"];
-    region_snapshot [label="RenderRegionCache\ncopy 3 x 3 x 3 section neighborhood", fillcolor="#ede9fe"];
-    cpu_mesh [label="SectionCompiler scans 16 x 16 x 16 blocks\nmodel/fluid tessellation by render layer\nvisibility graph + translucent sorting", fillcolor="#ede9fe"];
-    mesh_data [label="Build vertex/index MeshData\nopaque, cutout, translucent layers", fillcolor="#ede9fe"];
-    gpu_stage [label="Stage allocations in UberGpuBuffers", fillcolor="#ede9fe"];
-    gpu_upload [label="Render thread uploads terrain buffers to GPU\npublish CompiledSectionMesh after all uploads finish", fillcolor="#ede9fe"];
-    draw_prepare [label="Frustum/occlusion select visible compiled sections\nprepare direct or multidraw-indirect commands", fillcolor="#ede9fe"];
-    draw [label="Opaque and translucent render passes\ndrawMultipleIndexed / drawIndexedIndirect", fillcolor="#ddd6fe"];
-    client_ready [label="LevelLoadTracker: LEVEL_CHUNKS_LOAD_START received\nwait for camera section compiled and visible (including fade)\nbypass for spectator/dead/outside build height, or 30 s timeout\nthen configured close delay", fillcolor="#ede9fe"];
-    player_loaded [label="Close loading screen; send ServerboundPlayerLoadedPacket\nserver marks client-loaded state\n(server also has a 60-tick loaded-state timeout)", fillcolor="#ede9fe"];
-    live_updates [label="Ongoing gameplay loop\nclient movement/actions -> authoritative server simulation\nblock/section/light/block-entity/entity update packets\nclient applies updates and remeshes dirty sections", fillcolor="#ede9fe"];
-    player_world [label="FINISHED PLAYER EXPERIENCE\nterrain visible; lighting active; entities arrive separately;\nclient input drives interaction against authoritative server", fillcolor="#c4b5fd", penwidth=2.0];
+    packet_decode [label=<<B>Remote PacketDecoder (local: packet object)</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">ClientPacketListener.handleLevelChunkWithLight() on client thread<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    client_cache [label=<<B>ClientChunkCache.replaceWithPacketData()</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">create or replace client LevelChunk<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    read_sections [label=<<B>Read block-state and biome palettes into sections</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">install heightmaps and initialize light-source metadata<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    client_block_entities [label=<<B>Create client block entities</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">apply update tags + install client tickers<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    install_light [label=<<B>Queue and apply sky/block DataLayers</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">enable chunk light + update section emptiness<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    mark_dirty [label=<<B>Mark chunk and neighboring sections dirty</B>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    visibility [label=<<B>LevelExtractor + SectionOcclusionGraph</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">loaded/empty sets, occlusion propagation, frustum-visible sections<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    neighbor_gate [shape=diamond, style="filled", label=<<B>Initial section mesh has all 8 horizontal</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#9b2c2c">neighbor columns and light enabled?<BR ALIGN="CENTER"/></FONT>>,
+      fillcolor="#fee2e2", color="#f87171", fontcolor="#7f1d1d"];
+    region_snapshot [label=<<B>RenderRegionCache</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">copy 3 x 3 x 3 section neighborhood<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    cpu_mesh [label=<<B>SectionCompiler scans 16 x 16 x 16 blocks</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">model/fluid tessellation by render layer<BR ALIGN="LEFT"/>visibility graph + translucent sorting<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    mesh_data [label=<<B>Build vertex/index MeshData</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">opaque, cutout, translucent layers<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    gpu_stage [label=<<B>Stage allocations in UberGpuBuffers</B>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    gpu_upload [label=<<B>Render thread uploads terrain buffers to GPU</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">publish CompiledSectionMesh after all uploads finish<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    draw_prepare [label=<<B>Frustum/occlusion select visible compiled sections</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">prepare direct or multidraw-indirect commands<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    draw [label=<<B>Opaque and translucent render passes</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">drawMultipleIndexed / drawIndexedIndirect<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ddd6fe", color="#8b5cf6", fontcolor="#4c1d95"];
+    client_ready [label=<<B>LevelLoadTracker: LEVEL_CHUNKS_LOAD_START received</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">wait for camera section compiled and visible (including fade)<BR ALIGN="LEFT"/>bypass for spectator/dead/outside build height, or 30 s timeout<BR ALIGN="LEFT"/>then configured close delay<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    player_loaded [label=<<B>Close loading screen; send ServerboundPlayerLoadedPacket</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">server marks client-loaded state<BR ALIGN="LEFT"/>(server also has a 60-tick loaded-state timeout)<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    live_updates [label=<<B>Ongoing gameplay loop</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#5b3aa8">client movement/actions -&gt; authoritative server simulation<BR ALIGN="LEFT"/>block/section/light/block-entity/entity update packets<BR ALIGN="LEFT"/>client applies updates and remeshes dirty sections<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#ede9fe", color="#a78bfa", fontcolor="#4c1d95"];
+    player_world [label=<<B>FINISHED PLAYER EXPERIENCE</B><BR/>
+      <FONT POINT-SIZE="9" COLOR="#4c1d95">terrain visible; lighting active; entities arrive separately;<BR ALIGN="LEFT"/>client input drives interaction against authoritative server<BR ALIGN="LEFT"/></FONT>>,
+      fillcolor="#c4b5fd", color="#7c3aed", fontcolor="#3b0764", penwidth=2.0];
 
     packet_encode -> packet_decode [lhead=cluster_client];
-    client_level_init -> client_cache [style=dashed, label="client world must exist first"];
+    client_level_init -> client_cache [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>client world must exist first</I>>];
     packet_decode -> client_cache -> read_sections -> client_block_entities -> install_light -> mark_dirty -> visibility -> neighbor_gate;
-    neighbor_gate -> region_snapshot [label="yes"];
-    neighbor_gate -> mark_dirty [label="no; wait for neighbor/light"];
+    neighbor_gate -> region_snapshot [label=<<I>yes</I>>];
+    neighbor_gate -> mark_dirty [label=<<I>no; wait for neighbor/light</I>>];
     region_snapshot -> cpu_mesh -> mesh_data -> gpu_stage -> gpu_upload -> draw_prepare -> draw -> player_world;
     client_level_init -> client_ready;
-    gpu_upload -> client_ready [style=dashed, label="player-section compiled callback via renderer"];
+    gpu_upload -> client_ready [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>player-section compiled callback via renderer</I>>];
     client_ready -> player_loaded -> player_world;
     player_world -> live_updates;
-    live_updates -> mark_dirty [style=dashed, label="changed terrain/light"];
-    live_updates -> player_view [style=dashed, label="movement / dimension travel"];
-    entity_packets -> player_world [style=dashed, label="entity visibility"];
-    playable_server -> player_world [style=dashed, label="gameplay authority"];
+    live_updates -> mark_dirty [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>changed terrain/light</I>>];
+    live_updates -> player_view [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>movement / dimension travel</I>>];
+    entity_packets -> player_world [constraint=false, style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>entity visibility</I>>];
+    playable_server -> player_world [style=dashed, color="#8098b4", fontcolor="#64748b", label=<<I>gameplay authority</I>>];
   }
 
+
   subgraph cluster_notes {
-    label="Scope and interpretation";
+    label=<<FONT POINT-SIZE="15"><B>Scope and interpretation</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#475569";
     color="#94a3b8";
     fillcolor="#ffffff";
-    style="rounded,dashed";
+    style="rounded,filled,dashed";
+    penwidth=1.6;
+    margin=14;
 
     notes [
       shape=note,
       style="filled",
       fillcolor="#ffffff",
-      label="Source-audited against the supplied mc-26.3-source decompilation.\nEnd-to-end successful lifecycle, with algorithm details focused on vanilla normal Overworld.\nOther noise settings and biome sources, flat/debug, and saved-chunk reuse branch explicitly.\nArrows show flow/data dependencies, not one synchronous call stack; dashed arrows link parallel systems.\nRule/noise subgraphs describe evaluation dependencies or priority, not unconditional block overwrites.\nStatus stages run only as needed; a request may stop before FULL. Empty loops still complete their stage.\nGeneration is demand/ticket driven, never the entire infinite world up front.\nFULL generation, runtime promotion, persistence, delivery, rendering and player-loaded are separate milestones.\nErrors/cancellation, every feature's internals, and every render pass are outside this lifecycle overview."
+      color="#cbd5e1",
+      margin="0.12,0.10",
+      label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">Source-audited against the supplied mc-26.3-source decompilation.</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">End-to-end successful lifecycle, with algorithm details focused on vanilla normal Overworld.</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">Other noise settings and biome sources, flat/debug, and saved-chunk reuse branch explicitly.</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">Arrows show flow/data dependencies, not one synchronous call stack; dashed arrows link parallel systems.</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">Rule/noise subgraphs describe evaluation dependencies or priority, not unconditional block overwrites.</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">Status stages run only as needed; a request may stop before FULL. Empty loops still complete their stage.</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">Generation is demand/ticket driven, never the entire infinite world up front.</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">FULL generation, runtime promotion, persistence, delivery, rendering and player-loaded are separate milestones.</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" VALIGN="TOP"><FONT POINT-SIZE="9" COLOR="#94a3b8">&#9642;</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="9.5" COLOR="#475569">Errors/cancellation, every feature's internals, and every render pass are outside this lifecycle overview.</FONT></TD></TR>
+        </TABLE>>
     ];
   }
 
   store_reference -> biome_density_pool [lhead=cluster_biomes];
-  player_world -> notes [style=dotted, arrowhead=none];
+  player_world -> notes [style=dotted, color="#b45309", fontcolor="#b45309", arrowhead=none];
+
+  subgraph cluster_legend {
+    label=<<FONT POINT-SIZE="15"><B>Color key</B></FONT>>;
+    labeljust=l;
+    labelloc=t;
+    fontname="Helvetica";
+    fontsize=15;
+    fontcolor="#475569";
+    color="#94a3b8";
+    fillcolor="#ffffff";
+    style="rounded,dashed,filled";
+    penwidth=1.6;
+    margin=14;
+
+    legend [shape=box, style="filled", fillcolor="#ffffff", color="#ffffff",
+      margin="0.04,0.04", label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3">
+        <TR><TD BGCOLOR="#dbeafe" BORDER="1" COLOR="#60a5fa" WIDTH="26" HEIGHT="13" FIXEDSIZE="TRUE" CELLPADDING="0"><FONT POINT-SIZE="1" COLOR="#dbeafe">.</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">bootstrap / configuration</FONT></TD></TR>
+        <TR><TD BGCOLOR="#fef3c7" BORDER="1" COLOR="#f0b429" WIDTH="26" HEIGHT="13" FIXEDSIZE="TRUE" CELLPADDING="0"><FONT POINT-SIZE="1" COLOR="#fef3c7">.</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">server scheduling / chunk statuses</FONT></TD></TR>
+        <TR><TD BGCOLOR="#dcfce7" BORDER="1" COLOR="#4ade80" WIDTH="26" HEIGHT="13" FIXEDSIZE="TRUE" CELLPADDING="0"><FONT POINT-SIZE="1" COLOR="#dcfce7">.</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">terrain generation algorithms</FONT></TD></TR>
+        <TR><TD BGCOLOR="#ede9fe" BORDER="1" COLOR="#a78bfa" WIDTH="26" HEIGHT="13" FIXEDSIZE="TRUE" CELLPADDING="0"><FONT POINT-SIZE="1" COLOR="#ede9fe">.</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">runtime / network / client</FONT></TD></TR>
+        <TR><TD BGCOLOR="#e2e8f0" BORDER="1" COLOR="#94a3b8" WIDTH="26" HEIGHT="13" FIXEDSIZE="TRUE" CELLPADDING="0"><FONT POINT-SIZE="1" COLOR="#e2e8f0">.</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">persistence / alternative path</FONT></TD></TR>
+        <TR><TD BGCOLOR="#fee2e2" BORDER="1" COLOR="#f87171" WIDTH="26" HEIGHT="13" FIXEDSIZE="TRUE" CELLPADDING="0"><FONT POINT-SIZE="1" COLOR="#fee2e2">.</FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">decision or branch point</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#7c8899"><B>solid</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">arrow = flow or data dependency</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#8098b4"><B>dashed</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">arrow = link between parallel systems</FONT></TD></TR>
+        <TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="9" COLOR="#b45309"><B>dotted</B></FONT></TD><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#334155">arrow = chunk status persisted to disk</FONT></TD></TR>
+        </TABLE>>];
+  }
+
+  notes -> legend [style=invis];
+
 }
 
 // Primary source anchors in mc-26.3-source/src/main/java:
