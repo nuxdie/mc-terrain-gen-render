@@ -29,6 +29,10 @@ Block templateMaterial(std::string_view state) {
     auto name = state.substr(0, state.find('['));
     if (name.starts_with("minecraft:")) name.remove_prefix(10);
     using enum Block;
+    if (name == "cactus") return Cactus;
+    for (auto plant : {"short_grass", "fern", "sweet_berry_bush", "cactus_flower", "dandelion", "poppy",
+                       "azure_bluet", "oxeye_daisy", "cornflower", "orange_tulip", "red_tulip", "pink_tulip", "white_tulip"})
+        if (name == plant) return Plant;
     static const std::unordered_map<std::string_view, Block> names{
         {"air", Air}, {"cave_air", Air}, {"void_air", Air}, {"water", Water}, {"lava", Lava},
         {"stone", Stone}, {"bedrock", Bedrock}, {"dirt", Dirt}, {"grass_block", Grass},

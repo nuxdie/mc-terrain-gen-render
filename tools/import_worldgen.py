@@ -222,7 +222,8 @@ class Importer:
             return key, projection, self.processors(element.get("processors", {"processors": []}))
         if kind == "minecraft:feature_pool_element":
             feature = element["feature"]
-            if feature not in {"minecraft:oak", "minecraft:spruce", "minecraft:pine", "minecraft:pile_hay",
+            if feature not in {"minecraft:oak", "minecraft:spruce", "minecraft:pine", "minecraft:acacia",
+                               "minecraft:patch_cactus", "minecraft:patch_berry_bush", "minecraft:patch_taiga_grass", "minecraft:flower_plain", "minecraft:pile_hay",
                                "minecraft:pile_ice", "minecraft:pile_pumpkin", "minecraft:pile_melon", "minecraft:pile_snow"}:
                 self.unsupported.add("feature pool algorithm: " + feature)
             key = "feature:" + feature

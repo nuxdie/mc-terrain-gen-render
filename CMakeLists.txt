@@ -26,6 +26,7 @@ add_library(mcworld
     src/feature_placement.cpp
     src/features.cpp
     src/vegetation.cpp
+    src/plant_features.cpp
 )
 add_library(mcworld::mcworld ALIAS mcworld)
 

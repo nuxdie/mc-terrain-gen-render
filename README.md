@@ -153,6 +153,7 @@ Generation includes:
   depth-first, including nested features on the same random stream. Ores use
   the source ellipsoid geometry, standard distributions, deepslate variants,
   and air-exposure rules. Disks, water/lava springs, oak/birch/spruce/pine trees,
+  forked acacia trees and cactus/berry/grass/flower patches in village pools,
   village block piles, and
   temperature-adjusted freezing/snow write through a mutable 3×3 region and
   maintain all four heightmaps.
@@ -293,7 +294,8 @@ highest generated surface, with framing scaled to the area size.
 | `decoration.cpp` | Stage 8: the 3x3 write region, structure pieces, and the feature catalog. |
 | `feature_placement.cpp` | FeatureSorter, depth-first modifiers, integer providers, and nested feature execution. |
 | `features.cpp` | Ore ellipsoids, disks/state providers, and spring algorithms. |
-| `vegetation.cpp` | Straight-trunk/foliage algorithms and village block piles. |
+| `vegetation.cpp` | Straight/forked trunks, foliage algorithms, leaf distances, and village block piles. |
+| `plant_features.cpp` | Village vegetation patches, cactus columns, and the fixed-seed plains-flower noise provider. |
 | `generation.cpp` | Stage 5/8 pass orchestration, area planning, and the shared value types. |
 
 Generation is float arithmetic, so it is sensitive in ways ordinary code is

@@ -117,7 +117,7 @@ struct Occupancy {
 
     [[nodiscard]] bool exposed(int x,int y,int z,int dx,int dy,int dz) const {
         auto own=at(x,y,z),neighbor=at(x+dx,y+dy,z+dz);
-        return neighbor==mcworld::Block::Air || (mcworld::isSolid(own) && mcworld::isFluid(neighbor)) ||
+        return neighbor==mcworld::Block::Air || neighbor==mcworld::Block::Plant || (mcworld::isSolid(own) && mcworld::isFluid(neighbor)) ||
             (own==mcworld::Block::Lava && neighbor==mcworld::Block::Water);
     }
 
@@ -272,6 +272,8 @@ private:
     case Cobblestone: return Tile::Cobblestone;
     case MossyCobblestone: return Tile::MossyCobblestone;
     case Bricks: return Tile::Bricks;
+    case Plant: return Tile::GrassTop;
+    case Cactus: return Tile::GrassTop;
     case Diorite: return Tile::Diorite;
     case Andesite: return Tile::Andesite;
     case EmeraldOre: return Tile::EmeraldOre;
@@ -492,17 +494,29 @@ void appendExposedFaces(VoxelMesh& mesh, const Occupancy& occupancy, int x, int 
     auto appendFace=[&](VoxelMesh& output,const std::array<Position,4>& corners,const Normal& normal) {
         appendTexturedFace(output,corners,normal,occupancy.at(x,y,z));
     };
-    const float x0 = static_cast<float>(x);
-    const float x1 = x0 + 1.0F;
+    if (occupancy.at(x, y, z) == mcworld::Block::Plant) {
+        const float x0 = x + .15F, x1 = x + .85F, z0 = z + .15F, z1 = z + .85F;
+        const float y0 = static_cast<float>(y), y1 = y + .85F;
+        constexpr float n = .70710678F;
+        appendFace(mesh, {{{x0,y0,z0},{x0,y1,z0},{x1,y1,z1},{x1,y0,z1}}}, {n,0,-n});
+        appendFace(mesh, {{{x1,y0,z1},{x1,y1,z1},{x0,y1,z0},{x0,y0,z0}}}, {-n,0,n});
+        appendFace(mesh, {{{x1,y0,z0},{x1,y1,z0},{x0,y1,z1},{x0,y0,z1}}}, {n,0,n});
+        appendFace(mesh, {{{x0,y0,z1},{x0,y1,z1},{x1,y1,z0},{x1,y0,z0}}}, {-n,0,-n});
+        return;
+    }
+    const bool cactus = occupancy.at(x, y, z) == mcworld::Block::Cactus;
+    const float inset = cactus ? .0625F : 0;
+    const float x0 = static_cast<float>(x) + inset;
+    const float x1 = static_cast<float>(x) + 1.0F - inset;
     const float y0 = static_cast<float>(y);
     const float y1 = y0 + 1.0F;
-    const float z0 = static_cast<float>(z);
-    const float z1 = z0 + 1.0F;
+    const float z0 = static_cast<float>(z) + inset;
+    const float z1 = static_cast<float>(z) + 1.0F - inset;
 
-    if (occupancy.exposed(x,y,z,1,0,0)) {
+    if (cactus || occupancy.exposed(x,y,z,1,0,0)) {
         appendFace(mesh, {{{x1, y0, z0}, {x1, y1, z0}, {x1, y1, z1}, {x1, y0, z1}}}, {1, 0, 0});
     }
-    if (occupancy.exposed(x,y,z,-1,0,0)) {
+    if (cactus || occupancy.exposed(x,y,z,-1,0,0)) {
         appendFace(mesh, {{{x0, y0, z1}, {x0, y1, z1}, {x0, y1, z0}, {x0, y0, z0}}}, {-1, 0, 0});
     }
     if (occupancy.exposed(x,y,z,0,1,0)) {
@@ -511,10 +525,10 @@ void appendExposedFaces(VoxelMesh& mesh, const Occupancy& occupancy, int x, int 
     if (occupancy.exposed(x,y,z,0,-1,0)) {
         appendFace(mesh, {{{x0, y0, z0}, {x1, y0, z0}, {x1, y0, z1}, {x0, y0, z1}}}, {0, -1, 0});
     }
-    if (occupancy.exposed(x,y,z,0,0,1)) {
+    if (cactus || occupancy.exposed(x,y,z,0,0,1)) {
         appendFace(mesh, {{{x1, y0, z1}, {x1, y1, z1}, {x0, y1, z1}, {x0, y0, z1}}}, {0, 0, 1});
     }
-    if (occupancy.exposed(x,y,z,0,0,-1)) {
+    if (cactus || occupancy.exposed(x,y,z,0,0,-1)) {
         appendFace(mesh, {{{x0, y0, z0}, {x0, y1, z0}, {x1, y1, z0}, {x1, y0, z0}}}, {0, 0, -1});
     }
 }

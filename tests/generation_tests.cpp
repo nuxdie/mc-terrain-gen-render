@@ -154,13 +154,19 @@ void testStructureMetadata() {
 class TestFeatureWorld final : public mcworld::detail::FeatureWorld {
 public:
     int ceiling = 64;
+    mcworld::Block ground = mcworld::Block::Stone;
     mcworld::Biome biome = mcworld::Biome::Plains;
     std::map<std::tuple<int, int, int>, mcworld::Block> edits;
+    std::map<std::tuple<int, int, int>, std::shared_ptr<const mcworld::BlockData>> data;
     mcworld::Block at(int x, int y, int z) const override {
         const auto it = edits.find({x, y, z});
-        return it == edits.end() ? (y < ceiling ? mcworld::Block::Stone : mcworld::Block::Air) : it->second;
+        return it == edits.end() ? (y < ceiling ? ground : mcworld::Block::Air) : it->second;
     }
-    void set(int x, int y, int z, mcworld::Block b) override { edits[{x, y, z}] = b; }
+    void set(int x, int y, int z, mcworld::Block b) override { edits[{x, y, z}] = b; data.erase({x, y, z}); }
+    void setData(int x, int y, int z, std::shared_ptr<const mcworld::BlockData> value) override { data[{x, y, z}] = std::move(value); }
+    const mcworld::BlockData* dataAt(int x, int y, int z) const override {
+        const auto it = data.find({x,y,z}); return it == data.end() ? nullptr : it->second.get();
+    }
     mcworld::Biome biomeAt(int, int, int) const override { return biome; }
     int height(mcworld::detail::FeatureHeightmap, int, int) const override { return ceiling; }
     bool canWrite(mcworld::BlockPosition p) const override { return p.y >= -64 && p.y < 320; }
@@ -509,7 +515,7 @@ void testTreesAndPiles() {
     for (auto shape : {TreeShape::Oak, TreeShape::Birch, TreeShape::Spruce, TreeShape::Pine}) {
         TestFeatureWorld world; world.ceiling = 0; world.set(0, -1, 0, Block::Grass);
         WorldgenRandom random(12); FeatureContext context{world, random, {}};
-        check(straightTreeFeature(shape)(context, {0, 0, 0}), "source straight-trunk/foliage variant places on valid soil");
+        check(treeFeature(shape)(context, {0, 0, 0}), "source straight-trunk/foliage variant places on valid soil");
         counts[index++] = world.edits.size();
         check(world.at(0, 0, 0) == Block::OakLog && world.at(0, -1, 0) == Block::Dirt, "tree builds trunk and prepares soil");
     }
@@ -518,7 +524,7 @@ void testTreesAndPiles() {
     blocked.set(0, -1, 0, Block::Dirt); blocked.set(1, 2, 0, Block::Stone);
     const auto before = blocked.edits;
     WorldgenRandom random(1); FeatureContext context{blocked, random, {}};
-    check(!straightTreeFeature(TreeShape::Oak)(context, {0, 0, 0}) && blocked.edits == before,
+    check(!treeFeature(TreeShape::Oak)(context, {0, 0, 0}) && blocked.edits == before,
           "tree checks canopy clearance before any writes");
     TestFeatureWorld pile; pile.ceiling = 0;
     FeatureContext pileContext{pile, random, {}};
@@ -526,6 +532,72 @@ void testTreesAndPiles() {
 }
 
 } // namespace
+
+void testVillageVegetation() {
+    using namespace mcworld;
+    using namespace mcworld::detail;
+    // Independently evaluated Java expressions: mask hashes/counts and the
+    // next RNG long exercise branching, attachments, and conditional draws.
+    struct Fixture { std::int64_t seed; std::uint64_t hash; int logs, leaves; std::uint64_t next; };
+    constexpr Fixture fixtures[]{
+        {0, 0x540c82536c0145bcULL, 10, 79, 0x7b061ce59c26eea5ULL},
+        {1, 0x5861ef0b146c36bfULL, 9, 84, 0x129e7b65d7f26daaULL},
+        {123, 0x50d4f33f383033ebULL, 10, 80, 0xbf0c9c7c01ed334dULL},
+        {-91, 0x3a5af77109d6a9d1ULL, 10, 84, 0x089da8d72ee443e3ULL},
+    };
+    for (const auto& fixture : fixtures) {
+        TestFeatureWorld world; world.ceiling = 0; world.ground = Block::Grass;
+        WorldgenRandom random(fixture.seed); FeatureContext context{world, random, {}};
+        check(placePoolFeature("minecraft:acacia", context, {}), "village acacia pool element executes");
+        std::uint64_t hash = 0xcbf29ce484222325ULL;
+        int logs = 0, leaves = 0;
+        for (int z = -8; z <= 8; ++z) for (int x = -8; x <= 8; ++x) for (int y = 0; y <= 16; ++y) {
+            const auto block = world.at(x,y,z);
+            const int id = block == Block::OakLog ? 2 : block == Block::OakLeaves ? 3 : 0;
+            logs += id == 2; leaves += id == 3;
+            hash ^= id; hash *= 0x100000001b3ULL;
+            if (id != 0) check(world.dataAt(x,y,z) && world.dataAt(x,y,z)->state.starts_with("minecraft:acacia_"), "acacia keeps its species in block-state metadata");
+        }
+        check(hash == fixture.hash && logs == fixture.logs && leaves == fixture.leaves, "acacia matches Java forked-trunk and canopy masks");
+        check(random.nextLong() == fixture.next, "acacia matches Java RNG consumption");
+    }
+    struct NoiseFixture { BlockPosition p; std::uint32_t bits; };
+    constexpr NoiseFixture noise[]{
+        {{0,0,0},0xbe56ed18U}, {{10,64,20},0xbf0b3ec5U}, {{-10,80,-20},0xbef16141U},
+        {{100000,319,-100000},0x3d8afafaU}, {{-2000000000,0,2000000000},0x3e6a73c0U},
+        {{-1405,64,-1069},0xbf50a344U},
+    };
+    for (const auto& fixture : noise) check(std::bit_cast<std::uint32_t>(plainsFlowerNoise(fixture.p)) == fixture.bits,
+        "flower provider matches Java legacy positional seeds and float noise samples");
+
+    for (auto name : {"patch_cactus", "patch_berry_bush", "patch_taiga_grass", "flower_plain"}) {
+        TestFeatureWorld world; world.ceiling = 0; world.ground = std::string_view(name) == "patch_cactus" ? Block::Sand : Block::Grass;
+        WorldgenRandom random(123); FeatureContext context{world, random, {}};
+        check(placePoolFeature(name, context, {}), "village patch performs terminal placements");
+        check(!world.data.empty(), "patch retains named block states and properties");
+        for (const auto& [pos, block] : world.edits) {
+            const auto [x,y,z] = pos;
+            check((block == Block::Plant || block == Block::Cactus) && world.dataAt(x,y,z), "patch uses vegetation material rather than stone fallback");
+            if (std::string_view(name) != "patch_cactus") check(y == 0, "patch survival rejects airborne and buried origins");
+        }
+    }
+    TestFeatureWorld blocked; blocked.ceiling = 0; blocked.ground = Block::Sand;
+    blocked.set(0,1,0,Block::Stone);
+    WorldgenRandom random(123), expected(123); FeatureContext context{blocked, random, {}};
+    const int upper = expected.nextInt(3); (void)expected.nextInt(upper + 1); (void)expected.nextInt(4);
+    check(cactusColumnFeature()(context, {}) && blocked.at(0,0,0) == Block::Air, "column lookahead truncates all layers beneath an immediate obstruction");
+    check(random.nextLong() == expected.nextLong(), "blocked column still samples both configured layer heights");
+    TestFeatureWorld barren; barren.ceiling = 0;
+    WorldgenRandom barrenRandom(7); FeatureContext barrenContext{barren, barrenRandom, {}};
+    check(!placePoolFeature("patch_berry_bush", barrenContext, {}) && barren.edits.empty(), "berry patch requires grass-block support");
+
+    TerrainChunk chunk;
+    chunk.set(1, 0, 1, Block::Dirt); chunk.set(1, 1, 1, Block::Plant); chunk.primeHeightmaps();
+    check(chunk.worldSurface[17] == 2 && chunk.oceanFloor[17] == 1 && chunk.motionBlocking[17] == 1,
+          "plants contribute to world surface but not solid or motion heightmaps");
+    check(!isSolid(templateMaterial("minecraft:fern")) && blocksMotion(templateMaterial("minecraft:cactus[age=0]")),
+          "imported plants and cactus use appropriate material classifications");
+}
 
 int main(int argc, char** argv) {
     if (argc == 3) {
@@ -548,6 +620,7 @@ int main(int argc, char** argv) {
     testWeightedStructuresAndJigsaws();
     testJunctionDensityAndProcessors();
     testTreesAndPiles();
+    testVillageVegetation();
     if (failures) std::cerr << failures << " generation checks failed\n";
     else std::cout << "All generation checks passed\n";
     return failures ? 1 : 0;

@@ -1,5 +1,6 @@
 #include "voxel_renderer.hpp"
 #include "terrain_surface_field.hpp"
+#include "mcworld/structure_templates.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -118,5 +119,51 @@ int main() {
         }
     }
     check(ceilings > 0, "Fixture exercises cave ceilings");
+
+    // Two imported vegetation blocks isolated above the terrain exercise the
+    // actual voxel path, including non-occluding plants and inset cactus sides.
+    class Plains final : public mcworld::BiomeSource {
+        mcworld::Biome sample(const mcworld::OverworldNoiseRouter&, int, int, int) const override { return mcworld::Biome::Plains; }
+    };
+    auto catalog = std::make_shared<mcworld::StructureTemplateCatalog>();
+    mcworld::StructureTemplate marker;
+    marker.size = {1, 2, 1};
+    marker.blocks = {{{0,0,0}, mcworld::Block::Cactus}, {{0,1,0}, mcworld::Block::Plant}};
+    catalog->templates["vegetation"] = marker;
+    catalog->pools["vegetation"].elements = {{"vegetation", 1, mcworld::PieceProjection::Rigid}};
+    catalog->starts[mcworld::StructureVariant::VillagePlains] = {"vegetation", 0, 16, 279, false};
+    mcworld::GenerationOptions options;
+    options.templates = catalog;
+    options.terrain.biomes = std::make_shared<Plains>();
+    options.terrain.carvers = options.terrain.aquifers = options.terrain.oreVeins = false;
+    viewer::VoxelTerrain vegetation(router, options);
+    vegetation.prepareArea(21, 5, 1, 1);
+    const auto vegetationMesh = vegetation.buildMesh(21, 5);
+    int plantVertices = 0, cactusTopVertices = 0, cactusSideVertices = 0;
+    for (const auto& v : vegetationMesh.vertices) {
+        // Exclude integer-edged cubes made by the village beardifier around
+        // the marker. Both vegetation shapes have strictly inset X/Z vertices.
+        if (v.x <= 0 || v.x >= 1 || v.z <= 0 || v.z >= 1 || v.y < 278 || v.y > 280) continue;
+        check(std::isfinite(v.u + v.v + v.nx + v.nz), "Vegetation quads have finite UVs and normals");
+        if (std::abs(v.nx) > .7F && std::abs(v.nz) > .7F) {
+            ++plantVertices;
+            check(v.y >= 279 && v.y < 280, "Plants use crossed quads rather than full cubes");
+        } else if (v.ny > .9F && v.y == 279) ++cactusTopVertices;
+        else if (std::abs(v.nx) > .9F || std::abs(v.nz) > .9F) {
+            ++cactusSideVertices;
+            check(v.x >= .0625F && v.x <= .9375F && v.z >= .0625F && v.z <= .9375F, "Cactus side geometry is inset by one pixel");
+        }
+    }
+    check(plantVertices == 24 && cactusTopVertices == 6 && cactusSideVertices == 24,
+          "Plant does not hide supporting cactus top; crossed quads render on both sides");
+    for (std::size_t i = 0; i + 2 < vegetationMesh.vertices.size(); i += 3) {
+        const auto& a = vegetationMesh.vertices[i];
+        if (std::abs(a.nx) < .7F || std::abs(a.nz) < .7F) continue;
+        const auto& b = vegetationMesh.vertices[i + 1];
+        const auto& c = vegetationMesh.vertices[i + 2];
+        const float nx = (b.y-a.y)*(c.z-a.z) - (b.z-a.z)*(c.y-a.y);
+        const float nz = (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
+        check(nx * a.nx + nz * a.nz > 0, "Crossed plant face normals agree with triangle winding on both sides");
+    }
     return failures ? 1 : 0;
 }

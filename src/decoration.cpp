@@ -340,7 +340,7 @@ bool placeTree(FeatureContext& context, BlockPosition origin) {
         : biome == Biome::OldGrowthPineTaiga ? TreeShape::Pine
         : biome == Biome::Taiga || biome == Biome::SnowyTaiga || biome == Biome::OldGrowthSpruceTaiga || biome == Biome::Grove ? TreeShape::Spruce
         : TreeShape::Oak;
-    return straightTreeFeature(shape)(context, origin);
+    return treeFeature(shape)(context, origin);
 }
 
 // Java: `SnowAndFreezeFeature`. The only feature that covers the whole chunk

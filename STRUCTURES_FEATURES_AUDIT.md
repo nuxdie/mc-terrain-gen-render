@@ -65,7 +65,42 @@ viewer-enabled tests, and the generation/importer tests under ASan/UBSan passed.
 The real imported catalog also loaded and assembled successfully under the
 sanitizers. Standalone density and terrain expectations were not changed.
 
-Still unsupported: several feature-pool algorithms (including acacia and sculk),
+### Village vegetation follow-up
+
+The imported village pool IDs `acacia`, `patch_cactus`, `patch_berry_bush`,
+`patch_taiga_grass`, and `flower_plain` now execute instead of being skipped.
+This brings support to **13 of the 14 distinct feature IDs** referenced by the
+imported village/ancient-city pools; `sculk_patch_ancient_city` remains missing.
+The tested catalog now reports 57 unsupported-semantics records rather than 62
+(these records include individual asset occurrences, not just algorithm types).
+
+- Acacia follows `ForkingTrunkPlacer` and `AcaciaFoliagePlacer`: conditional bend
+  and branch draws, source horizontal-direction order, successful-log attachment
+  heights, and the three canopy rows. Leaf distance is propagated through
+  connected leaves from logs rather than measured from the original trunk column.
+- Cactus uses the configured biased stem height and weighted flower-tip layer.
+  The source's above-origin lookahead and base-priority truncation are preserved,
+  including the no-write success case beneath an immediate obstruction.
+- Patches run the source count/triangular-offset/predicate chains. Berry bushes
+  require grass support and retain age 3; taiga grass uses the 1:4 grass/fern
+  provider. Plant survival is applied after state-provider selection.
+- Plains flowers use the fixed seed 2345, legacy positional `octave_0` factories,
+  the two Perlin samples, float normalization, and the noise-threshold state
+  provider. This is isolated from the project-specific stage-7A noise convention.
+- New plant/cactus material categories preserve exact named states. Plants are
+  non-solid, contribute only to world-surface height, and do not occlude adjacent
+  voxel faces. The voxel viewer emits two-sided crossed plant quads and inset
+  cactus geometry. Textures remain material fallbacks rather than full species
+  models; the smooth density mesh does not include non-solid plants.
+
+Four Java-derived acacia fixtures pin complete masks, log/leaf counts, and the
+next RNG long. Six raw-float noise fixtures cover positive/negative/large
+coordinates and the flower provider's low-state branch. Regression cases cover
+patch survival, metadata, blocked columns, plant heightmaps, and actual viewer
+cross-quad/cactus geometry. All headless, viewer, and generation sanitizer checks
+passed; no existing density/terrain expectations were changed.
+
+Still unsupported: the ancient-city sculk feature-pool algorithm,
 template entities, some processor predicates/modifiers, all non-imported structure
 families, and full state-specific rendering/behavior. Material fallbacks do not
 make stairs, fences, crops, or other partial blocks behave or render like their

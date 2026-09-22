@@ -27,7 +27,7 @@ enum class Block : std::uint8_t {
     OakLog, OakLeaves, OakPlanks, Cobblestone, MossyCobblestone, Bricks,
     Diorite, Andesite, EmeraldOre, DeepslateCoalOre, DeepslateGoldOre,
     DeepslateRedstoneOre, DeepslateDiamondOre, DeepslateLapisOre,
-    DeepslateCopperOre, DeepslateEmeraldOre
+    DeepslateCopperOre, DeepslateEmeraldOre, Plant, Cactus
 };
 
 [[nodiscard]] constexpr bool isFluid(Block block) {
@@ -35,7 +35,7 @@ enum class Block : std::uint8_t {
 }
 
 [[nodiscard]] constexpr bool isSolid(Block block) {
-    return block != Block::Air && !isFluid(block);
+    return block != Block::Air && block != Block::Plant && !isFluid(block);
 }
 
 [[nodiscard]] constexpr bool isLeaves(Block block) {

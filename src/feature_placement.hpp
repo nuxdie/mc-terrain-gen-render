@@ -153,13 +153,17 @@ struct OreTarget {
 [[nodiscard]] ConfiguredFeature randomSelectorFeature(std::vector<std::pair<float, PlacedFeature>> children,
                                                      PlacedFeature fallback);
 
-enum class TreeShape { Oak, Birch, Spruce, Pine };
+enum class TreeShape { Oak, Birch, Spruce, Pine, Acacia };
 // Java: `TreeFeature` with a straight trunk. One shape stands in for each
 // species family; see README for that boundary.
-[[nodiscard]] ConfiguredFeature straightTreeFeature(TreeShape shape);
+[[nodiscard]] ConfiguredFeature treeFeature(TreeShape shape);
 
 // Java: `BlockPileFeature`. `name` selects the pile's material, e.g. "pile_hay".
 [[nodiscard]] ConfiguredFeature blockPileFeature(std::string name);
+enum class VillagePlantPatch { Cactus, Berries, TaigaGrass, PlainsFlowers };
+[[nodiscard]] PlacedFeature villagePlantPatch(VillagePlantPatch kind);
+[[nodiscard]] ConfiguredFeature cactusColumnFeature();
+[[nodiscard]] float plainsFlowerNoise(BlockPosition position);
 
 // Runs a template pool's feature element by name, with or without a
 // `minecraft:` prefix. Unknown names place nothing and return false, which is
