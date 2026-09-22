@@ -101,6 +101,11 @@ if(MCWORLD_BUILD_VIEWER)
             raw_copper_block raw_iron_block red_sand red_sandstone red_sandstone_bottom red_sandstone_top
             red_terracotta sand sandstone sandstone_bottom sandstone_top snow stone sulfur terracotta tuff
             water_still white_terracotta yellow_terracotta brown_terracotta
+            coal_ore iron_ore gold_ore redstone_ore diamond_ore lapis_ore clay
+            oak_log oak_log_top oak_leaves oak_planks cobblestone mossy_cobblestone bricks
+            diorite andesite emerald_ore deepslate_coal_ore deepslate_gold_ore
+            deepslate_redstone_ore deepslate_diamond_ore deepslate_lapis_ore
+            deepslate_copper_ore deepslate_emerald_ore
         )
         set(FAITHFUL_TEXTURE_PATTERNS)
         foreach(TEXTURE IN LISTS FAITHFUL_BLOCK_TEXTURES)

@@ -72,11 +72,14 @@ int main() {
     check(!a.empty() && a == b, "Adjacent chunks agree on seam positions, normals and materials");
 
     const auto voxel = terrain.buildMesh(-1, 2);
-    std::set<std::pair<int, int>> voxelTiles;
+    std::set<std::pair<float, float>> voxelTiles;
     for (const auto& v : voxel.vertices) {
         check(std::isfinite(v.u + v.v) && v.u >= 0.0F && v.u <= 1.0F && v.v >= 0.0F && v.v <= 1.0F,
               "Voxel texture coordinates stay inside the atlas");
-        voxelTiles.emplace(static_cast<int>(v.u * 8), static_cast<int>(v.v * 6));
+        // Each face starts at the same local UV corner, independent of atlas size.
+        if ((&v - voxel.vertices.data()) % 6 == 0) {
+            voxelTiles.emplace(v.u, v.v);
+        }
     }
     check(voxelTiles.size() > 1, "Voxel materials select multiple atlas textures");
 

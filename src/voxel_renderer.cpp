@@ -75,6 +75,30 @@ enum class Tile : int {
     WhiteTerracotta,
     YellowTerracotta,
     BrownTerracotta,
+    CoalOre,
+    IronOre,
+    GoldOre,
+    RedstoneOre,
+    DiamondOre,
+    LapisOre,
+    Clay,
+    OakLog,
+    OakLogTop,
+    OakLeaves,
+    OakPlanks,
+    Cobblestone,
+    MossyCobblestone,
+    Bricks,
+    Diorite,
+    Andesite,
+    EmeraldOre,
+    DeepslateCoalOre,
+    DeepslateGoldOre,
+    DeepslateRedstoneOre,
+    DeepslateDiamondOre,
+    DeepslateLapisOre,
+    DeepslateCopperOre,
+    DeepslateEmeraldOre,
     Count,
 };
 
@@ -235,29 +259,29 @@ private:
     case BrownTerracotta: return Tile::BrownTerracotta;
     case RedTerracotta: return Tile::RedTerracotta;
     case LightGrayTerracotta: return Tile::LightGrayTerracotta;
-    case CoalOre: return Tile::Stone;
-    case IronOre: return Tile::CopperOre;
-    case GoldOre: return Tile::YellowTerracotta;
-    case RedstoneOre: return Tile::RedTerracotta;
-    case DiamondOre: return Tile::Calcite;
-    case LapisOre: return Tile::PackedIce;
-    case Clay: return Tile::LightGrayTerracotta;
-    case OakLog: return Tile::BrownTerracotta;
-    case OakLeaves: return Tile::GrassTop;
-    case OakPlanks: return Tile::BrownTerracotta;
-    case Cobblestone: return Tile::Stone;
-    case MossyCobblestone: return Tile::PodzolSide;
-    case Bricks: return Tile::RedTerracotta;
-    case Diorite: return Tile::Calcite;
-    case Andesite: return Tile::Stone;
-    case EmeraldOre: return Tile::GrassTop;
-    case DeepslateCoalOre: return Tile::Deepslate;
-    case DeepslateGoldOre: return Tile::YellowTerracotta;
-    case DeepslateRedstoneOre: return Tile::RedTerracotta;
-    case DeepslateDiamondOre: return Tile::Calcite;
-    case DeepslateLapisOre: return Tile::PackedIce;
-    case DeepslateCopperOre: return Tile::CopperOre;
-    case DeepslateEmeraldOre: return Tile::GrassTop;
+    case CoalOre: return Tile::CoalOre;
+    case IronOre: return Tile::IronOre;
+    case GoldOre: return Tile::GoldOre;
+    case RedstoneOre: return Tile::RedstoneOre;
+    case DiamondOre: return Tile::DiamondOre;
+    case LapisOre: return Tile::LapisOre;
+    case Clay: return Tile::Clay;
+    case OakLog: return top || bottom ? Tile::OakLogTop : Tile::OakLog;
+    case OakLeaves: return Tile::OakLeaves;
+    case OakPlanks: return Tile::OakPlanks;
+    case Cobblestone: return Tile::Cobblestone;
+    case MossyCobblestone: return Tile::MossyCobblestone;
+    case Bricks: return Tile::Bricks;
+    case Diorite: return Tile::Diorite;
+    case Andesite: return Tile::Andesite;
+    case EmeraldOre: return Tile::EmeraldOre;
+    case DeepslateCoalOre: return Tile::DeepslateCoalOre;
+    case DeepslateGoldOre: return Tile::DeepslateGoldOre;
+    case DeepslateRedstoneOre: return Tile::DeepslateRedstoneOre;
+    case DeepslateDiamondOre: return Tile::DeepslateDiamondOre;
+    case DeepslateLapisOre: return Tile::DeepslateLapisOre;
+    case DeepslateCopperOre: return Tile::DeepslateCopperOre;
+    case DeepslateEmeraldOre: return Tile::DeepslateEmeraldOre;
     }
     return Tile::Stone;
 }
@@ -284,6 +308,8 @@ private:
     std::array<float, 3> tint{255.0F, 255.0F, 255.0F};
     if (tile == Tile::GrassTop) {
         tint = {115.0F, 185.0F, 78.0F};
+    } else if (tile == Tile::OakLeaves) {
+        tint = {119.0F, 171.0F, 47.0F};
     } else if (block == mcworld::Block::Water) {
         tint = {55.0F, 125.0F, 235.0F};
     }
@@ -535,6 +561,30 @@ void appendExposedFaces(VoxelMesh& mesh, const Occupancy& occupancy, int x, int 
     case Tile::WhiteTerracotta: return {210, 179, 161, 255};
     case Tile::YellowTerracotta: return {185, 133, 36, 255};
     case Tile::BrownTerracotta: return {78, 51, 36, 255};
+    case Tile::CoalOre: return {95, 95, 95, 255};
+    case Tile::IronOre: return {145, 132, 120, 255};
+    case Tile::GoldOre: return {160, 148, 93, 255};
+    case Tile::RedstoneOre: return {145, 95, 95, 255};
+    case Tile::DiamondOre: return {105, 161, 157, 255};
+    case Tile::LapisOre: return {90, 112, 150, 255};
+    case Tile::Clay: return {160, 166, 179, 255};
+    case Tile::OakLog: return {109, 85, 50, 255};
+    case Tile::OakLogTop: return {151, 122, 73, 255};
+    case Tile::OakLeaves: return {180, 180, 180, 255};
+    case Tile::OakPlanks: return {162, 130, 78, 255};
+    case Tile::Cobblestone: return {120, 120, 120, 255};
+    case Tile::MossyCobblestone: return {104, 119, 88, 255};
+    case Tile::Bricks: return {151, 98, 83, 255};
+    case Tile::Diorite: return {188, 188, 188, 255};
+    case Tile::Andesite: return {136, 136, 136, 255};
+    case Tile::EmeraldOre: return {100, 148, 116, 255};
+    case Tile::DeepslateCoalOre: return {55, 56, 60, 255};
+    case Tile::DeepslateGoldOre: return {116, 105, 65, 255};
+    case Tile::DeepslateRedstoneOre: return {109, 58, 61, 255};
+    case Tile::DeepslateDiamondOre: return {65, 125, 124, 255};
+    case Tile::DeepslateLapisOre: return {53, 72, 111, 255};
+    case Tile::DeepslateCopperOre: return {109, 88, 71, 255};
+    case Tile::DeepslateEmeraldOre: return {61, 110, 80, 255};
     case Tile::Count: break;
     }
     return MAGENTA;
@@ -581,6 +631,12 @@ void appendExposedFaces(VoxelMesh& mesh, const Occupancy& occupancy, int x, int 
         "sand.png", "sandstone.png", "sandstone_bottom.png", "sandstone_top.png", "snow.png",
         "stone.png", "sulfur.png", "terracotta.png", "tuff.png", "water_still.png",
         "white_terracotta.png", "yellow_terracotta.png", "brown_terracotta.png",
+        "coal_ore.png", "iron_ore.png", "gold_ore.png", "redstone_ore.png", "diamond_ore.png",
+        "lapis_ore.png", "clay.png", "oak_log.png", "oak_log_top.png", "oak_leaves.png",
+        "oak_planks.png", "cobblestone.png", "mossy_cobblestone.png", "bricks.png",
+        "diorite.png", "andesite.png", "emerald_ore.png", "deepslate_coal_ore.png",
+        "deepslate_gold_ore.png", "deepslate_redstone_ore.png", "deepslate_diamond_ore.png",
+        "deepslate_lapis_ore.png", "deepslate_copper_ore.png", "deepslate_emerald_ore.png",
     }};
     std::array<Image, kAtlasTiles> tiles{};
     for (std::size_t i = 0; i < tiles.size(); ++i) {
