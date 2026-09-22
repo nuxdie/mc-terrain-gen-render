@@ -1,91 +1,225 @@
+// Step 7B of `minecraft-26.3-worldgen.dot`: chunk terrain generation.
+//
+// `OverworldTerrainGenerator::Impl::generate` is the spine of that diagram and
+// runs its nodes in order:
+//
+//   biome palette -> aquifer -> density fill -> materials -> carvers
+//                -> heightmaps -> fluid post-processing
+//
+// Each pass is implemented in its own translation unit (see
+// `terrain_internal.hpp`); this file owns the chunk container, the pass order
+// and the heightmap bookkeeping they share.
+//
+// Two ordering rules are load-bearing and easy to break by accident:
+//
+//  * Blocks are visited in Z, X, descending-Y order, and positional seeds use
+//    world coordinates, so generating neighbouring chunks in a different order
+//    cannot change what a chunk contains.
+//  * `worldSurface` is maintained *during* a pass (see `setWorldgenBlock`),
+//    because material gradients and carver soil repair read it while writing.
+//    The other heightmaps are primed between passes.
+
 #include "terrain_internal.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
+#include <tuple>
 
 namespace mcworld {
 namespace {
-std::size_t index(int x,int y,int z) {
-    if(x<0 || x>=16 || z<0 || z>=16 || y<TerrainChunk::minY || y>=TerrainChunk::maxY)
+
+// Chunk coordinates are validated with room to spare for the carver
+// neighbourhood (radius 8 chunks), aquifer probes and interpolation halos, so
+// that no pass has to re-check for overflow per block.
+constexpr std::int64_t kCoordinateMargin = 512;
+
+// Biome palette dimensions, in quart cells.
+constexpr int kPaletteWidth = TerrainChunk::width / detail::kQuartSize;
+constexpr int kPaletteHeight = TerrainChunk::height / detail::kQuartSize;
+
+[[nodiscard]] std::size_t index(int x, int y, int z) {
+    if (x < 0 || x >= TerrainChunk::width || z < 0 || z >= TerrainChunk::width ||
+        y < TerrainChunk::minY || y >= TerrainChunk::maxY) {
         throw std::out_of_range("Terrain block coordinate outside chunk");
-    return static_cast<std::size_t>((z*16+x)*TerrainChunk::height+y-TerrainChunk::minY);
-}
-}
-Block TerrainChunk::at(int x,int y,int z) const {return blocks.at(index(x,y,z));}
-void TerrainChunk::set(int x,int y,int z,Block block) {blocks.at(index(x,y,z))=block;}
-Biome TerrainChunk::biomeAt(int x,int y,int z) const {
-    (void)index(x,y,z);
-    return biomes[(z/4*4+x/4)*(height/4)+(y-minY)/4];
-}
-void TerrainChunk::primeHeightmaps() {
-    worldSurface.fill(minY);oceanFloor.fill(minY);motionBlocking.fill(minY);
-    for(int z=0;z<16;++z) for(int x=0;x<16;++x) for(int y=maxY-1;y>=minY;--y) {
-        Block b=at(x,y,z);int column=z*16+x;
-        if(b!=Block::Air && worldSurface[column]==minY) worldSurface[column]=y+1;
-        if(blocksMotion(b) && oceanFloor[column]==minY) oceanFloor[column]=y+1;
-        if((blocksMotion(b) || isFluid(b)) && motionBlocking[column]==minY) motionBlocking[column]=y+1;
     }
-    motionBlockingNoLeaves=motionBlocking; // No leaf states in the terrain palette.
+    return static_cast<std::size_t>((z * TerrainChunk::width + x) * TerrainChunk::height + y - TerrainChunk::minY);
 }
-Biome BiomeSource::sample(const OverworldNoiseRouter& router,int x,int y,int z) const {
-    return sampleOverworldBiome(router,x,y,z);
+
+} // namespace
+
+// --- Chunk storage ---------------------------------------------------------
+
+Block TerrainChunk::at(int x, int y, int z) const {
+    return blocks.at(index(x, y, z));
 }
+
+void TerrainChunk::set(int x, int y, int z, Block block) {
+    blocks.at(index(x, y, z)) = block;
+}
+
+Biome TerrainChunk::biomeAt(int x, int y, int z) const {
+    (void)index(x, y, z); // Bounds check only; the palette is quart resolution.
+    constexpr int quart = detail::kQuartSize;
+    const int cell = (z / quart * kPaletteWidth + x / quart) * kPaletteHeight + (y - minY) / quart;
+    return biomes[static_cast<std::size_t>(cell)];
+}
+
+void TerrainChunk::primeHeightmaps() {
+    worldSurface.fill(minY);
+    oceanFloor.fill(minY);
+    motionBlocking.fill(minY);
+    for (int z = 0; z < width; ++z) {
+        for (int x = 0; x < width; ++x) {
+            const int column = z * width + x;
+            // Heightmaps store the first free Y, so the topmost qualifying
+            // block found scanning down wins.
+            for (int y = maxY - 1; y >= minY; --y) {
+                const Block block = at(x, y, z);
+                if (block != Block::Air && worldSurface[column] == minY) {
+                    worldSurface[column] = y + 1;
+                }
+                if (blocksMotion(block) && oceanFloor[column] == minY) {
+                    oceanFloor[column] = y + 1;
+                }
+                if ((blocksMotion(block) || isFluid(block)) && motionBlocking[column] == minY) {
+                    motionBlocking[column] = y + 1;
+                }
+            }
+        }
+    }
+    motionBlockingNoLeaves = motionBlocking; // No leaf states in the terrain palette.
+}
+
+Biome BiomeSource::sample(const OverworldNoiseRouter& router, int x, int y, int z) const {
+    return sampleOverworldBiome(router, x, y, z);
+}
+
+// --- Generation ------------------------------------------------------------
+
 class OverworldTerrainGenerator::Impl {
 public:
-    Impl(const OverworldNoiseRouter& router,TerrainOptions options):router_(router),options_(std::move(options)) {
-        if(!options_.biomes) options_.biomes=std::make_shared<BiomeSource>();
+    Impl(const OverworldNoiseRouter& router, TerrainOptions options)
+        : router_(router), options_(std::move(options)) {
+        if (!options_.biomes) {
+            options_.biomes = std::make_shared<BiomeSource>();
+        }
     }
-    TerrainChunk generate(int cx,int cz) {
-        // Reserve space for the carver neighborhood, aquifer probes, and interpolation halos.
-        constexpr std::int64_t margin=512;
-        std::int64_t ox=static_cast<std::int64_t>(cx)*16,oz=static_cast<std::int64_t>(cz)*16;
-        if(ox<std::numeric_limits<int>::min()+margin || ox>std::numeric_limits<int>::max()-margin ||
-            oz<std::numeric_limits<int>::min()+margin || oz>std::numeric_limits<int>::max()-margin)
-            throw std::invalid_argument("Terrain chunk is outside supported coordinate range");
-        TerrainChunk chunk;chunk.chunkX=cx;chunk.chunkZ=cz;
-        int originX=static_cast<int>(ox),originZ=static_cast<int>(oz);
-        for(int z=0;z<4;++z) for(int x=0;x<4;++x) for(int y=0;y<96;++y)
-            chunk.biomes[(z*4+x)*96+y]=options_.biomes->sample(router_,originX+x*4,-64+y*4,originZ+z*4);
-        detail::Aquifer aquifer(router_,options_.aquifers);
-        for(int z=0;z<16;++z) for(int x=0;x<16;++x) for(int y=319;y>=-64;--y) {
-            auto density=router_.sampleFinalDensity(originX+x,y,originZ+z);
-            auto substance=aquifer.sample(originX+x,y,originZ+z,density);
-            chunk.set(x,y,z,substance.block);
-            if(substance.schedule && isFluid(substance.block)) chunk.fluidPostProcessing.push_back({x,y,z});
+
+    TerrainChunk generate(int chunkX, int chunkZ) {
+        const int originX = checkedOrigin(chunkX);
+        const int originZ = checkedOrigin(chunkZ);
+
+        TerrainChunk chunk;
+        chunk.chunkX = chunkX;
+        chunk.chunkZ = chunkZ;
+
+        fillBiomePalette(chunk, originX, originZ);
+
+        // The aquifer is shared with the carvers below: both passes have to
+        // agree on which fluid body a position belongs to.
+        detail::Aquifer aquifer(router_, options_.aquifers);
+        fillDensity(chunk, aquifer, originX, originZ);
+        chunk.primeHeightmaps();
+
+        detail::buildMaterials(chunk, router_, options_.oreVeins,
+                               detail::makeBlockBiomeGetter(chunk, router_, *options_.biomes, true));
+        chunk.primeHeightmaps();
+
+        if (options_.carvers) {
+            detail::carve(chunk, router_, *options_.biomes, aquifer, options_.oreVeins);
         }
         chunk.primeHeightmaps();
-        detail::buildMaterials(chunk,router_,options_.oreVeins,detail::makeBlockBiomeGetter(chunk,router_,*options_.biomes,true));
-        chunk.primeHeightmaps();
-        if(options_.carvers) detail::carve(chunk,router_,*options_.biomes,aquifer,options_.oreVeins);
-        chunk.primeHeightmaps();
-        auto& updates=chunk.fluidPostProcessing;
-        std::erase_if(updates,[&](auto p){return !isFluid(chunk.at(p.x,p.y,p.z));});
-        std::sort(updates.begin(),updates.end(),[](auto a,auto b){return std::tie(a.z,a.x,a.y)<std::tie(b.z,b.x,b.y);});
-        updates.erase(std::unique(updates.begin(),updates.end()),updates.end());
+
+        compactFluidUpdates(chunk);
         return chunk;
     }
+
 private:
+    [[nodiscard]] static int checkedOrigin(int chunkCoordinate) {
+        const auto origin = static_cast<std::int64_t>(chunkCoordinate) * TerrainChunk::width;
+        if (origin < std::numeric_limits<int>::min() + kCoordinateMargin ||
+            origin > std::numeric_limits<int>::max() - kCoordinateMargin) {
+            throw std::invalid_argument("Terrain chunk is outside supported coordinate range");
+        }
+        return static_cast<int>(origin);
+    }
+
+    // Java: `ProtoChunk.fillBiomesFromNoise`, one entry per 4x4x4 cell.
+    void fillBiomePalette(TerrainChunk& chunk, int originX, int originZ) const {
+        for (int z = 0; z < kPaletteWidth; ++z) {
+            for (int x = 0; x < kPaletteWidth; ++x) {
+                for (int y = 0; y < kPaletteHeight; ++y) {
+                    chunk.biomes[(z * kPaletteWidth + x) * kPaletteHeight + y] =
+                        options_.biomes->sample(router_,
+                                                originX + x * detail::kQuartSize,
+                                                TerrainChunk::minY + y * detail::kQuartSize,
+                                                originZ + z * detail::kQuartSize);
+                }
+            }
+        }
+    }
+
+    // Java: `NoiseBasedChunkGenerator.fillFromNoise`. Sample the final density
+    // at every block and let the aquifer turn it into a block.
+    void fillDensity(TerrainChunk& chunk, detail::Aquifer& aquifer, int originX, int originZ) const {
+        for (int z = 0; z < TerrainChunk::width; ++z) {
+            for (int x = 0; x < TerrainChunk::width; ++x) {
+                for (int y = TerrainChunk::maxY - 1; y >= TerrainChunk::minY; --y) {
+                    const float density = router_.sampleFinalDensity(originX + x, y, originZ + z);
+                    const detail::Substance substance = aquifer.sample(originX + x, y, originZ + z, density);
+                    chunk.set(x, y, z, substance.block);
+                    if (substance.schedule && isFluid(substance.block)) {
+                        chunk.fluidPostProcessing.push_back({x, y, z});
+                    }
+                }
+            }
+        }
+    }
+
+    // Later passes overwrite blocks, so a queued position may no longer hold a
+    // fluid, and carvers can queue one twice. Normalize into the chunk's own
+    // z/x/y order so the result does not depend on which pass queued what.
+    static void compactFluidUpdates(TerrainChunk& chunk) {
+        auto& updates = chunk.fluidPostProcessing;
+        std::erase_if(updates, [&](BlockPosition p) { return !isFluid(chunk.at(p.x, p.y, p.z)); });
+        std::sort(updates.begin(), updates.end(), [](BlockPosition a, BlockPosition b) {
+            return std::tie(a.z, a.x, a.y) < std::tie(b.z, b.x, b.y);
+        });
+        updates.erase(std::unique(updates.begin(), updates.end()), updates.end());
+    }
+
     const OverworldNoiseRouter& router_;
     TerrainOptions options_;
 };
-OverworldTerrainGenerator::OverworldTerrainGenerator(const OverworldNoiseRouter& router,TerrainOptions options)
-    :impl_(std::make_unique<Impl>(router,std::move(options))){}
-OverworldTerrainGenerator::~OverworldTerrainGenerator()=default;
-OverworldTerrainGenerator::OverworldTerrainGenerator(OverworldTerrainGenerator&&) noexcept=default;
-OverworldTerrainGenerator& OverworldTerrainGenerator::operator=(OverworldTerrainGenerator&&) noexcept=default;
-TerrainChunk OverworldTerrainGenerator::generate(int x,int z) {return impl_->generate(x,z);}
+
+OverworldTerrainGenerator::OverworldTerrainGenerator(const OverworldNoiseRouter& router, TerrainOptions options)
+    : impl_(std::make_unique<Impl>(router, std::move(options))) {}
+OverworldTerrainGenerator::~OverworldTerrainGenerator() = default;
+OverworldTerrainGenerator::OverworldTerrainGenerator(OverworldTerrainGenerator&&) noexcept = default;
+OverworldTerrainGenerator& OverworldTerrainGenerator::operator=(OverworldTerrainGenerator&&) noexcept = default;
+
+TerrainChunk OverworldTerrainGenerator::generate(int chunkX, int chunkZ) {
+    return impl_->generate(chunkX, chunkZ);
+}
+
 } // namespace mcworld
 
 namespace mcworld::detail {
-void setWorldgenBlock(TerrainChunk& chunk,int x,int y,int z,Block block) {
-    chunk.set(x,y,z,block);
-    // Material gradients and carver topMaterial observe the live WORLD_SURFACE_WG
-    // heightmap. The remaining heightmaps are primed at the end of each pass.
-    int& height=chunk.worldSurface[z*16+x];
-    if(block!=Block::Air) height=std::max(height,y+1);
-    else if(height==y+1) {
-        height=y;
-        while(height>TerrainChunk::minY && chunk.at(x,height-1,z)==Block::Air) --height;
+
+void setWorldgenBlock(TerrainChunk& chunk, int x, int y, int z, Block block) {
+    chunk.set(x, y, z, block);
+
+    int& height = chunk.worldSurface[z * TerrainChunk::width + x];
+    if (block != Block::Air) {
+        height = std::max(height, y + 1);
+    } else if (height == y + 1) {
+        // Clearing the topmost block exposes whatever is below it.
+        height = y;
+        while (height > TerrainChunk::minY && chunk.at(x, height - 1, z) == Block::Air) {
+            --height;
+        }
     }
 }
-}
+
+} // namespace mcworld::detail

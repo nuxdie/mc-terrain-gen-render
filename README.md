@@ -156,12 +156,14 @@ selected area's highest surface, with framing scaled to the area size.
 | File | Role |
 | --- | --- |
 | `density_math.hpp` | Scalar primitives shared by every layer (`lerp`, `squeeze`, slides). |
+| `legacy_random.hpp` | Java's 48-bit LCG and the positional seeds the terrain stages draw from. |
 | `noise.cpp` | Perlin, `NormalNoise` octave stacks, and the base 3-D `BlendedNoise`. |
 | `spline.cpp` | `TerrainProvider` cubic splines for offset, factor and jaggedness. |
 | `worldgen.cpp` | The router itself: climate, sloped cheese, caves, slides, noodles. |
 | `isosurface.cpp` | Marching tetrahedra over the final density field. |
 | `biome.cpp` | Standard Overworld climate intervals and nearest-point lookup. |
 | `biome_environment.cpp` | Block-biome zoom and fixed-seed frozen-ocean temperatures. |
+| `terrain_internal.hpp` | The contract between the 7B passes; not part of the public API. |
 | `terrain.cpp` | Block storage, palettes, terrain pass ordering, and heightmaps. |
 | `aquifer.cpp` | Fluid centers, levels, pressure barriers, and update decisions. |
 | `materials.cpp` | Ordered bedrock, vein, surface, and underground rules. |
