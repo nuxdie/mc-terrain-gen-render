@@ -18,6 +18,7 @@
 #include "mcworld/terrain.hpp"
 #include "noise.hpp"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -129,6 +130,27 @@ using BlockBiomeGetter = std::function<Biome(int, int, int)>;
 // Java: `Biome.TemperatureModifier.FROZEN` above sea level. Warm spots inside a
 // frozen ocean melt icebergs down by two blocks.
 [[nodiscard]] bool meltsFrozenOceanIceberg(Biome biome, int x, int z);
+
+// --- Heightmaps ------------------------------------------------------------
+
+// One heightmap of a generated chunk, as the column array it lives in and the
+// predicate that decides whether a block counts towards it.
+struct HeightmapSpec {
+    TerrainChunk::Heightmap TerrainChunk::*column;
+    bool (*counts)(Block);
+};
+
+// Every heightmap world generation maintains. Two places iterate this table:
+// the full recompute in `TerrainChunk::primeHeightmaps`, and the incremental
+// update each stage-8 feature write performs. Adding a heightmap or changing a
+// predicate is therefore one edit here plus one in `terrain.hpp`, and the two
+// passes cannot end up disagreeing.
+inline constexpr std::array kHeightmaps{
+    HeightmapSpec{&TerrainChunk::worldSurface, countsForWorldSurface},
+    HeightmapSpec{&TerrainChunk::oceanFloor, countsForOceanFloor},
+    HeightmapSpec{&TerrainChunk::motionBlocking, countsForMotionBlocking},
+    HeightmapSpec{&TerrainChunk::motionBlockingNoLeaves, countsForMotionBlockingNoLeaves},
+};
 
 // --- Materials -------------------------------------------------------------
 

@@ -98,8 +98,8 @@ still **not a seed-compatible or bit-identical Minecraft implementation**:
 4. Saved-world biome/height/density/carving blending and below-zero retrogen,
    other dimensions/generators, and custom data-pack compilation are outside
    the current API. Density blend/beardifier inputs remain injectable. The later
-   graph-level stage 5/8 implementation in `src/generation.cpp` is outside this
-   density/terrain audit; see README for its bounded content catalog.
+   graph-level stage 5/8 implementation (`src/structures.cpp`,
+   `src/decoration.cpp`, `src/generation.cpp`) is outside this density/terrain audit; see README for its bounded content catalog.
 5. The block palette represents generated base materials rather than the full
    block-state registry. Fluid post-processing is queued, not simulated.
 

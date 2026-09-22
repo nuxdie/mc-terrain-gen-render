@@ -8,7 +8,8 @@ implementations**. They use four procedural structure placeholders and nine
 hard-coded feature entries. Matching placement seeds and stage ordinals does
 not make their generated content vanilla-compatible.
 
-This audit compared `src/generation.cpp`, its public API, and its terrain
+This audit compared the stage-5/8 implementation (`src/structures.cpp`,
+`src/decoration.cpp`, `src/generation.cpp`), its public API, and its terrain
 integration with the local 26.3 decompilation. Java paths below are relative to
 `mc-26.3-source/src/main/java/net/minecraft/`. The generated Java source is not
 part of the committed deliverable. The earlier biome/terrain audit remains in

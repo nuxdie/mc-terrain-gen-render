@@ -5,6 +5,7 @@
 
 #include "mcworld/worldgen.hpp"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace mcworld {
@@ -23,6 +24,10 @@ enum class Biome : std::uint8_t {
     FrozenOcean, DeepFrozenOcean, LukewarmOcean, DeepLukewarmOcean, WarmOcean,
     DripstoneCaves, LushCaves, SulfurCaves, DeepDark
 };
+
+// Relied on by code that indexes per-biome tables by enum value; `DeepDark` is
+// the last registered biome.
+constexpr std::size_t kBiomeCount = static_cast<std::size_t>(Biome::DeepDark) + 1;
 
 // Nearest registered climate point by six-dimensional interval distance, plus
 // the offset penalty. Equal distances resolve to the first registered point,

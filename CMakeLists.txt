@@ -18,6 +18,8 @@ add_library(mcworld
     src/materials.cpp
     src/carvers.cpp
     src/generation.cpp
+    src/structures.cpp
+    src/decoration.cpp
 )
 add_library(mcworld::mcworld ALIAS mcworld)
 

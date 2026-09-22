@@ -66,29 +66,22 @@ Biome TerrainChunk::biomeAt(int x, int y, int z) const {
 }
 
 void TerrainChunk::primeHeightmaps() {
-    worldSurface.fill(minY);
-    oceanFloor.fill(minY);
-    motionBlocking.fill(minY);
-    motionBlockingNoLeaves.fill(minY);
+    for (const auto& map : detail::kHeightmaps) {
+        (this->*map.column).fill(minY);
+    }
     for (int z = 0; z < width; ++z) {
         for (int x = 0; x < width; ++x) {
-            const int column = z * width + x;
+            const auto column = static_cast<std::size_t>(z * width + x);
             // Heightmaps store the first free Y, so the topmost qualifying
-            // block found scanning down wins.
+            // block found scanning down wins; `minY` marks a column still
+            // looking for one.
             for (int y = maxY - 1; y >= minY; --y) {
                 const Block block = at(x, y, z);
-                if (block != Block::Air && worldSurface[column] == minY) {
-                    worldSurface[column] = y + 1;
-                }
-                if (blocksMotion(block) && oceanFloor[column] == minY) {
-                    oceanFloor[column] = y + 1;
-                }
-                if ((blocksMotion(block) || isFluid(block)) && motionBlocking[column] == minY) {
-                    motionBlocking[column] = y + 1;
-                }
-                if (((blocksMotion(block) && !isLeaves(block)) || isFluid(block))
-                    && motionBlockingNoLeaves[column] == minY) {
-                    motionBlockingNoLeaves[column] = y + 1;
+                for (const auto& map : detail::kHeightmaps) {
+                    int& height = (this->*map.column)[column];
+                    if (height == minY && map.counts(block)) {
+                        height = y + 1;
+                    }
                 }
             }
         }

@@ -232,7 +232,10 @@ highest generated surface, with framing scaled to the area size.
 | `aquifer.cpp` | Fluid centers, levels, pressure barriers, and update decisions. |
 | `materials.cpp` | Ordered bedrock, vein, surface, and underground rules. |
 | `carvers.cpp` | Source-seeded cave/canyon masks and mask application. |
-| `generation.cpp` | Structure starts/references, beardification, finalized areas, and stage-8 decoration. |
+| `generation_internal.hpp` | The seam between the stage-5 and stage-8 halves; not part of the public API. |
+| `structures.cpp` | Stage 5: structure placement, starts, references, and beardification. |
+| `decoration.cpp` | Stage 8: the 3x3 write region, structure pieces, and the feature catalog. |
+| `generation.cpp` | Stage 5/8 pass orchestration, area planning, and the shared value types. |
 
 Generation is float arithmetic, so it is sensitive in ways ordinary code is
 not: re-associating a product, widening an intermediate to `double`, renaming a
@@ -246,6 +249,13 @@ few ULP. When refactoring this code for real, dump a large sample of
 `sampleFinalDensity`, the full `RouterSample` and the extracted mesh as raw
 float bit patterns before and after, and require the two dumps to be identical;
 that is how the current structure was verified against its predecessor.
+
+Stages 5 and 8 need the same procedure at a coarser grain, because their output
+is blocks rather than floats: digest the whole `GeneratedArea` - blocks, biome
+palette, all four heightmaps, the fluid-update queue, starts and references -
+over several seeds and option combinations, and require the digests to match
+byte for byte. That is how the `structures.cpp`/`decoration.cpp` split was
+verified against the single file it replaced.
 
 `tests/terrain_tests.cpp` covers biome boundaries, Java random vectors, aquifer
 decisions, generation-order determinism, materials/vein height ranges, carving,

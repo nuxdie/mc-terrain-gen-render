@@ -42,6 +42,27 @@ enum class Block : std::uint8_t {
     return isSolid(block) && block != Block::PowderSnow;
 }
 
+// Whether a block counts towards each heightmap, one predicate per entry of
+// Java's `Heightmap.Types` that world generation maintains. These are the only
+// definition of the four rules: `TerrainChunk::primeHeightmaps` recomputes
+// from them and stage-8 feature writes update from them, so the recomputed and
+// the incrementally maintained heightmaps cannot drift apart.
+[[nodiscard]] constexpr bool countsForWorldSurface(Block block) {
+    return block != Block::Air;
+}
+
+[[nodiscard]] constexpr bool countsForOceanFloor(Block block) {
+    return blocksMotion(block);
+}
+
+[[nodiscard]] constexpr bool countsForMotionBlocking(Block block) {
+    return blocksMotion(block) || isFluid(block);
+}
+
+[[nodiscard]] constexpr bool countsForMotionBlockingNoLeaves(Block block) {
+    return (blocksMotion(block) && !isLeaves(block)) || isFluid(block);
+}
+
 struct BlockPosition {
     int x{};
     int y{};
@@ -71,11 +92,13 @@ struct TerrainChunk {
     std::array<Biome, 4 * 4 * (height / 4)> biomes{};
 
     // Heightmaps store the first free Y above the topmost qualifying block, or
-    // `minY` for a column that has none.
-    std::array<int, 256> worldSurface{};
-    std::array<int, 256> oceanFloor{};
-    std::array<int, 256> motionBlocking{};
-    std::array<int, 256> motionBlockingNoLeaves{};
+    // `minY` for a column that has none. Columns are indexed `z * width + x`,
+    // the same local X/Z convention as `blocks`.
+    using Heightmap = std::array<int, width * width>;
+    Heightmap worldSurface{};
+    Heightmap oceanFloor{};
+    Heightmap motionBlocking{};
+    Heightmap motionBlockingNoLeaves{};
 
     // Positions queued for fluid post-processing, in local X/Z and world Y.
     // Queued, not simulated: the caller decides what to do with them.

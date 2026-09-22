@@ -1,18 +1,27 @@
 #pragma once
 
-// Synchronous graph-level implementation of stages 5 and 8 from
-// `minecraft-26.3-worldgen.dot`. It deliberately complements the independent
-// stage-7B chunk API: decoration needs a mutable 3x3 region, so finalized chunks
-// are generated as an area after every source chunk in a one-chunk halo ran.
+// Public API for stages 5 and 8 of `minecraft-26.3-worldgen.dot`:
+// STRUCTURE_STARTS/STRUCTURE_REFERENCES, and FEATURES on top of the stage-7B
+// terrain in `terrain.hpp`.
+//
+// This complements rather than replaces `OverworldTerrainGenerator`. A stage-7B
+// chunk stands alone, but a finalized chunk does not: decoration writes up to
+// one chunk outwards, so a chunk is only finished once all nine of its
+// neighbours have decorated. `generateArea` is therefore the primary entry
+// point, and it generates the halo those writes come from.
 
 #include "mcworld/terrain.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
 
 namespace mcworld {
 
+// Java's `GenerationStep.Decoration`. The ordinal of a step is part of every
+// feature seed (see `WorldgenRandom::setFeatureSeed`), so this order is part of
+// the generated world, not a presentation detail.
 enum class DecorationStep : std::uint8_t {
     RawGeneration,
     Lakes,
@@ -27,6 +36,11 @@ enum class DecorationStep : std::uint8_t {
     TopLayerModification,
 };
 
+// Relied on by the decoration loop, which walks every step in ordinal order.
+constexpr int kDecorationStepCount = static_cast<int>(DecorationStep::TopLayerModification) + 1;
+
+// The structures this port places. Their order fixes each one's index within
+// its decoration step, which also feeds the feature seed.
 enum class StructureKind : std::uint8_t {
     Village,
     Mineshaft,
@@ -34,6 +48,12 @@ enum class StructureKind : std::uint8_t {
     AncientCity,
 };
 
+// Relied on by the stage-8 ordering, which walks every kind.
+constexpr std::size_t kStructureKindCount = static_cast<std::size_t>(StructureKind::AncientCity) + 1;
+
+// Java's `TerrainAdjustment`: how a structure deforms the terrain around it
+// while stage 7B fills density. `None` leaves terrain untouched, which also
+// means the structure contributes no reference padding.
 enum class TerrainAdjustment : std::uint8_t {
     None,
     Bury,
@@ -45,7 +65,11 @@ enum class TerrainAdjustment : std::uint8_t {
 struct ChunkPosition {
     int x{};
     int z{};
+
     bool operator==(const ChunkPosition&) const = default;
+    // Lexicographic by (x, z). Used only to key lookups; no generation order
+    // depends on it.
+    auto operator<=>(const ChunkPosition&) const = default;
 };
 
 // Inclusive world-coordinate box, matching Minecraft's structure boxes.
@@ -62,6 +86,8 @@ struct BoundingBox {
     bool operator==(const BoundingBox&) const = default;
 };
 
+// One box of a structure. `groundLevelDelta` is the offset from the box's
+// bottom to the level terrain adaptation treats as the piece's floor.
 struct StructurePiece {
     BoundingBox bounds;
     Block block{Block::Stone};
@@ -84,6 +110,8 @@ struct StructureStart {
     bool operator==(const StructureStart&) const = default;
 };
 
+// A chunk's record that a start rooted in `source` reaches into it. Stage 8
+// resolves these back to starts to place the pieces that overlap.
 struct StructureReference {
     StructureKind kind{};
     ChunkPosition source;
@@ -92,24 +120,32 @@ struct StructureReference {
 
 struct GenerationOptions {
     TerrainOptions terrain;
+    // Java's `generateStructures` world option, gating stage 5 entirely:
+    // without it there are no starts, no references and no beardification.
     bool structures = true;
+    // Whether to run stage 8. Structure starts and their terrain adaptation
+    // still happen without it, so `false` yields stage-7B terrain plus stage-5
+    // metadata.
     bool features = true;
 };
 
+// One finalized chunk: its blocks plus the stage-5 metadata a saved chunk
+// carries alongside them.
 struct GeneratedChunk {
     TerrainChunk terrain;
     std::vector<StructureStart> starts;
     std::vector<StructureReference> references;
 };
 
-class GeneratedArea {
-public:
+// A rectangle of finalized chunks, row-major in Z and then X.
+struct GeneratedArea {
     int firstChunkX{};
     int firstChunkZ{};
     int width{};
     int depth{};
     std::vector<GeneratedChunk> chunks;
 
+    // Throws `std::out_of_range` outside the area.
     [[nodiscard]] const GeneratedChunk& at(int chunkX, int chunkZ) const;
     [[nodiscard]] GeneratedChunk& at(int chunkX, int chunkZ);
 };
@@ -127,13 +163,24 @@ public:
     OverworldWorldGenerator(const OverworldWorldGenerator&) = delete;
     OverworldWorldGenerator& operator=(const OverworldWorldGenerator&) = delete;
 
-    // Finalizes an area independently of prior calls. The implementation runs
-    // decoration sources in a canonical Z/X order, including the halo whose
-    // features can write into the returned chunks.
+    // Finalizes an area independently of prior calls: the result depends only
+    // on the seed and the options, never on what was generated before.
+    //
+    // Decoration runs in a canonical Z/X order over the requested chunks *and*
+    // the one-chunk halo whose features write back into them, so the returned
+    // chunks are complete.
+    //
+    // Throws `std::invalid_argument` for an empty area, or for one whose halo
+    // would leave the supported coordinate grid.
     [[nodiscard]] GeneratedArea generateArea(int firstChunkX, int firstChunkZ, int width, int depth);
+
+    // One finalized chunk. Equivalent to a 1x1 `generateArea`, and about as
+    // expensive: the halo dominates, so prefer `generateArea` for regions.
     [[nodiscard]] GeneratedChunk generate(int chunkX, int chunkZ);
 
-    // Stage-5 metadata without running terrain or decoration.
+    // Stage-5 metadata without running terrain or decoration. Each call is
+    // self-contained, so scanning many chunks this way re-derives the
+    // neighbours they share; `generateArea` shares that work internally.
     [[nodiscard]] std::vector<StructureStart> structureStarts(int chunkX, int chunkZ) const;
     [[nodiscard]] std::vector<StructureReference> structureReferences(int chunkX, int chunkZ) const;
 
