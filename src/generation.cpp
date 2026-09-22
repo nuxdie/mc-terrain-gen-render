@@ -1,6 +1,8 @@
 #include "mcworld/generation.hpp"
 
 #include "legacy_random.hpp"
+#include "generation_internal.hpp"
+#include "terrain_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -55,13 +57,6 @@ constexpr std::array kStructures{
     return static_cast<int>(value);
 }
 
-[[nodiscard]] bool ocean(Biome biome) {
-    using enum Biome;
-    return biome == Ocean || biome == DeepOcean || biome == ColdOcean || biome == DeepColdOcean
-        || biome == FrozenOcean || biome == DeepFrozenOcean || biome == LukewarmOcean
-        || biome == DeepLukewarmOcean || biome == WarmOcean;
-}
-
 [[nodiscard]] bool cave(Biome biome) {
     return biome == Biome::DripstoneCaves || biome == Biome::LushCaves
         || biome == Biome::SulfurCaves || biome == Biome::DeepDark;
@@ -108,11 +103,13 @@ constexpr std::array kStructures{
 [[nodiscard]] bool structureBiome(StructureKind kind, Biome biome) {
     switch (kind) {
     case StructureKind::Village:
-        return !ocean(biome) && !cave(biome) && biome != Biome::MushroomFields;
+        // Union of the five HAS_VILLAGE_* tags (including meadow).
+        return biome == Biome::Plains || biome == Biome::Meadow || biome == Biome::Desert
+            || biome == Biome::Savanna || biome == Biome::SnowyPlains || biome == Biome::Taiga;
     case StructureKind::Mineshaft:
-        return !ocean(biome);
+        return biome != Biome::DeepDark;
     case StructureKind::RuinedPortal:
-        return !cave(biome);
+        return biome != Biome::DeepDark;
     case StructureKind::AncientCity:
         return biome == Biome::DeepDark;
     }
@@ -237,8 +234,7 @@ public:
         for (int z = targetZ - kReferenceRadius; z <= targetZ + kReferenceRadius; ++z) {
             for (int x = targetX - kReferenceRadius; x <= targetX + kReferenceRadius; ++x) {
                 for (const StructureStart& start : starts(x, z)) {
-                    BoundingBox box = start.bounds();
-                    if (start.adjustment != TerrainAdjustment::None) box = box.inflated(12);
+                    const BoundingBox box = start.bounds();
                     if (box.intersectsChunk(targetX, targetZ)) {
                         result.push_back({start.kind, start.source});
                     }
@@ -276,17 +272,23 @@ private:
     return squared >= 36.0F ? 0.0F : 1.0F - std::sqrt(squared) / 6.0F;
 }
 
-[[nodiscard]] float beardContribution(int dx, int dy, int dz, int yToGround) {
+} // namespace
+
+float detail::structureBeardContribution(int dx, int dy, int dz, int yToGround) {
     if (dx < -12 || dx >= 12 || dy < -12 || dy >= 12 || dz < -12 || dz >= 12) return 0.0F;
     const double kernelY = static_cast<double>(dy) + 0.5;
-    const double kernelSquared = static_cast<double>(dx * dx + dz * dz) + kernelY * kernelY;
-    const float kernel = static_cast<float>(std::exp(-kernelSquared / 16.0));
+    const double kernelSquared = static_cast<double>(dx) * dx + kernelY * kernelY
+        + static_cast<double>(dz) * dz;
+    const float kernel = static_cast<float>(std::pow(std::exp(1.0), -kernelSquared / 16.0));
     const float offsetY = static_cast<float>(yToGround) + 0.5F;
-    const float squared = static_cast<float>(dx * dx + dz * dz) + offsetY * offsetY;
+    const float squared = static_cast<float>(dx) * dx + offsetY * offsetY
+        + static_cast<float>(dz) * dz;
     if (squared == 0.0F) return 0.0F;
     const float value = -offsetY * static_cast<float>(fastInvSqrt(squared / 2.0)) / 2.0F;
     return value * kernel;
 }
+
+namespace {
 
 class ChunkBeardifier final : public Beardifier {
 public:
@@ -325,7 +327,7 @@ public:
                 break;
             case TerrainAdjustment::BeardThin:
             case TerrainAdjustment::BeardBox:
-                result += beardContribution(dx, dy, dz, toGround) * 0.8F;
+                result += detail::structureBeardContribution(dx, dy, dz, toGround) * 0.8F;
                 break;
             case TerrainAdjustment::Encapsulate:
                 result += buryContribution(dx / 2.0F, dy / 2.0F, dz / 2.0F) * 0.8F;
@@ -368,8 +370,8 @@ void updateHeightmap(
 
 class GenerationRegion {
 public:
-    GenerationRegion(std::map<Key, TerrainChunk>& chunks, int centerX, int centerZ)
-        : chunks_(chunks), centerX_(centerX), centerZ_(centerZ) {}
+    GenerationRegion(std::map<Key, TerrainChunk>& chunks, int centerX, int centerZ, std::int64_t seed)
+        : chunks_(chunks), centerX_(centerX), centerZ_(centerZ), zoomSeed_(detail::biomeZoomSeed(seed)) {}
 
     [[nodiscard]] Block at(int x, int y, int z) const {
         if (y < TerrainChunk::minY || y >= TerrainChunk::maxY) return Block::Air;
@@ -378,8 +380,9 @@ public:
     }
 
     [[nodiscard]] Biome biomeAt(int x, int y, int z) const {
-        const auto [chunk, localX, localZ] = locate(x, z);
-        return chunk->biomeAt(localX, std::clamp(y, TerrainChunk::minY, TerrainChunk::maxY - 1), localZ);
+        const auto quart = detail::zoomedBiomeQuart(zoomSeed_, x, y, z);
+        const auto [chunk, localX, localZ] = locate(quart.x * 4, quart.z * 4);
+        return chunk->biomeAt(localX, std::clamp(quart.y * 4, TerrainChunk::minY, TerrainChunk::maxY - 1), localZ);
     }
 
     [[nodiscard]] int worldSurface(int x, int z) const {
@@ -390,6 +393,11 @@ public:
     [[nodiscard]] int oceanFloor(int x, int z) const {
         const auto [chunk, localX, localZ] = locate(x, z);
         return chunk->oceanFloor[localZ * 16 + localX];
+    }
+
+    [[nodiscard]] int motionBlocking(int x, int z) const {
+        const auto [chunk, localX, localZ] = locate(x, z);
+        return chunk->motionBlocking[localZ * 16 + localX];
     }
 
     void set(int x, int y, int z, Block block) {
@@ -433,6 +441,7 @@ private:
     std::map<Key, TerrainChunk>& chunks_;
     int centerX_;
     int centerZ_;
+    std::uint64_t zoomSeed_;
 };
 
 void placePiece(GenerationRegion& region, const StructurePiece& piece, int centerX, int centerZ) {
@@ -442,7 +451,7 @@ void placePiece(GenerationRegion& region, const StructurePiece& piece, int cente
     const int maxZ = std::min(piece.bounds.maxZ, checkedBlockOrigin(centerZ) + 15);
     if (minX > maxX || minZ > maxZ) return;
     for (int z = minZ; z <= maxZ; ++z) for (int x = minX; x <= maxX; ++x) {
-        for (int y = std::max(piece.bounds.minY, TerrainChunk::minY);
+        for (int y = std::max(piece.bounds.minY, TerrainChunk::minY + 1);
              y <= std::min(piece.bounds.maxY, TerrainChunk::maxY - 1); ++y) {
             const bool shell = x == piece.bounds.minX || x == piece.bounds.maxX
                 || y == piece.bounds.minY || y == piece.bounds.maxY
@@ -525,6 +534,7 @@ void placeClayDisks(GenerationRegion& region, detail::WorldgenRandom& random, in
         const int surface = region.worldSurface(x, z);
         if (surface <= TerrainChunk::minY || region.at(x, surface - 1, z) != Block::Water) continue;
         const int floor = region.oceanFloor(x, z) - 1;
+        if (!biomeHasFeature(region.biomeAt(x, floor + 1, z), Feature::ClayDisk)) continue;
         const int radius = 2 + random.nextInt(3);
         for (int dz = -radius; dz <= radius; ++dz) for (int dx = -radius; dx <= radius; ++dx) {
             if (dx * dx + dz * dz > radius * radius) continue;
@@ -545,16 +555,12 @@ void placeSprings(GenerationRegion& region, detail::WorldgenRandom& random, int 
         const int x = originX + random.nextInt(16);
         const int y = TerrainChunk::minY + 8 + random.nextInt(120);
         const int z = originZ + random.nextInt(16);
-        if (region.at(x, y, z) != Block::Stone && region.at(x, y, z) != Block::Deepslate) continue;
-        int solid = 0;
-        int air = 0;
-        constexpr int offsets[6][3]{{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
-        for (const auto& offset : offsets) {
-            const Block neighbor = region.at(x + offset[0], y + offset[1], z + offset[2]);
-            solid += blocksMotion(neighbor);
-            air += neighbor == Block::Air;
+        if (!biomeHasFeature(region.biomeAt(x, y, z), Feature::WaterSpring)) continue;
+        if (detail::canPlaceWaterSpring(region.at(x, y, z), region.at(x, y + 1, z),
+                region.at(x, y - 1, z), {region.at(x - 1, y, z), region.at(x + 1, y, z),
+                                      region.at(x, y, z - 1), region.at(x, y, z + 1)})) {
+            region.set(x, y, z, Block::Water);
         }
-        if (solid == 5 && air == 1) region.set(x, y, z, Block::Water);
     }
 }
 
@@ -594,8 +600,8 @@ void placeTrees(GenerationRegion& region, detail::WorldgenRandom& random, int ce
 void freezeTopLayer(GenerationRegion& region, int centerX, int centerZ) {
     const int originX = checkedBlockOrigin(centerX);
     const int originZ = checkedBlockOrigin(centerZ);
-    for (int z = originZ; z < originZ + 16; ++z) for (int x = originX; x < originX + 16; ++x) {
-        const int y = region.worldSurface(x, z);
+    for (int x = originX; x < originX + 16; ++x) for (int z = originZ; z < originZ + 16; ++z) {
+        const int y = region.motionBlocking(x, z);
         if (!snowy(region.biomeAt(x, y, z))) continue;
         if (y > TerrainChunk::minY && region.at(x, y - 1, z) == Block::Water) {
             region.set(x, y - 1, z, Block::Ice);
@@ -654,7 +660,7 @@ void decorateChunk(
     int chunkX,
     int chunkZ
 ) {
-    GenerationRegion region(chunks, chunkX, chunkZ);
+    GenerationRegion region(chunks, chunkX, chunkZ, seed);
     const auto references = structures.references(chunkX, chunkZ);
     const auto actualBiomes = collectBiomes(chunks, chunkX, chunkZ);
     detail::WorldgenRandom random(0);
@@ -725,7 +731,7 @@ BoundingBox StructureStart::bounds() const {
         result.maxY = std::max(result.maxY, piece.bounds.maxY);
         result.maxZ = std::max(result.maxZ, piece.bounds.maxZ);
     }
-    return result;
+    return adjustment == TerrainAdjustment::None ? result : result.inflated(12);
 }
 
 const GeneratedChunk& GeneratedArea::at(int chunkX, int chunkZ) const {

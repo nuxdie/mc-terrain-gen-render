@@ -193,6 +193,9 @@ This remains a graph-level implementation, not a vanilla parity claim:
 
 See [the stages 6/7B source audit](WORLDGEN_AUDIT.md) for corrections, reference
 test coverage, and the distinction between algorithm checks and full-world parity.
+The [stages 5/8 source audit](STRUCTURES_FEATURES_AUDIT.md) maps structure and
+decoration coverage to the diagram, records source-based fixes, and lists the
+remaining implementation gaps. Stages 5/8 are not complete vanilla ports.
 
 ## Scope
 
@@ -252,7 +255,8 @@ fixtures. The separate
 `terrain_tests` executable can be selected with CTest's `-R '^terrain_tests$'`.
 
 `tests/generation_tests.cpp` covers structure starts/references, disabled paths,
-decoration output, and live feature heightmaps.
+structure biome eligibility, Java beard-kernel fixtures, spring placement rules,
+terrain adaptation, decoration output, and live feature heightmaps.
 
 The smooth and voxel views are two presentations of the same finalized stage
 5-through-8 block result. The standalone `buildChunkIsosurface` API remains

@@ -78,6 +78,8 @@ struct StructureStart {
     std::vector<StructurePiece> pieces;
 
     [[nodiscard]] bool valid() const noexcept { return !pieces.empty(); }
+    // Union of piece boxes, inflated by 12 for adapting structures, as in
+    // StructureStart.getBoundingBox. Individual piece bounds remain unadjusted.
     [[nodiscard]] BoundingBox bounds() const;
     bool operator==(const StructureStart&) const = default;
 };
