@@ -33,18 +33,30 @@ struct VoxelMesh {
     [[nodiscard]] std::size_t triangleCount() const noexcept { return vertices.size() / 3; }
 };
 
+struct SmoothTerrainMesh {
+    std::vector<VoxelVertex> vertices;
+
+    [[nodiscard]] std::size_t triangleCount() const noexcept { return vertices.size() / 3; }
+};
+
 // Reuses generated chunks, including the border needed for neighbor visibility.
 class VoxelTerrain {
 public:
-    explicit VoxelTerrain(const mcworld::OverworldNoiseRouter& router):generator_(router){}
-    [[nodiscard]] VoxelMesh buildMesh(int chunkX,int chunkZ);
+    explicit VoxelTerrain(const mcworld::OverworldNoiseRouter& router) : router_(router), generator_(router) {}
+
+    [[nodiscard]] SmoothTerrainMesh buildSmoothMesh(int chunkX, int chunkZ);
+    [[nodiscard]] VoxelMesh buildMesh(int chunkX, int chunkZ);
+
 private:
-    [[nodiscard]] const mcworld::TerrainChunk& chunk(int x,int z);
+    [[nodiscard]] const mcworld::TerrainChunk& chunk(int x, int z);
+
+    const mcworld::OverworldNoiseRouter& router_;
     mcworld::OverworldTerrainGenerator generator_;
-    std::map<std::pair<int,int>,mcworld::TerrainChunk> chunks_;
+    std::map<std::pair<int, int>, mcworld::TerrainChunk> chunks_;
 };
 
 // Requires an initialized Raylib window/OpenGL context.
+[[nodiscard]] Mesh uploadSmoothTerrainMesh(const SmoothTerrainMesh& terrain);
 [[nodiscard]] Mesh uploadVoxelMesh(const VoxelMesh& voxels);
 
 } // namespace viewer

@@ -1,9 +1,9 @@
 # Minecraft 26.3 Overworld terrain viewer
 
-A C++20 implementation of the standard Overworld density graph (7A) and
-new-world terrain pipeline (7B) in `minecraft-26.3-worldgen.dot`, including the
-Overworld biome lookup needed by terrain generation. The Raylib viewer displays
-an 8×8 chunk area as either the smooth `density = 0` surface or generated blocks.
+A C++20 implementation of the standard Overworld biome lookup (6), density
+graph (7A), and new-world terrain pipeline (7B) in
+`minecraft-26.3-worldgen.dot`. The Raylib viewer displays an 8×8 chunk area as
+either a smooth mesh of the generated terrain or generated voxel blocks.
 
 This is a graph-level implementation, not a bit-for-bit or seed-compatible Java port.
 It keeps the Minecraft 26.3 graph, constants, terrain splines, cave branches,
@@ -59,16 +59,23 @@ Controls:
 - `WASD` and mouse: free camera at 40 blocks/second
 - Hold `Shift`: boost flight speed to 160 blocks/second
 - `Space` / left `Ctrl`: fly up / down
-- `V`: switch between the smooth density surface and voxel blocks
+- `V`: switch between the smooth terrain mesh and voxel blocks
 - `F`: toggle wireframe
 - `Tab`: release or capture the cursor (camera input pauses while released)
 - `Esc`: exit
 
-The voxel view uses generated terrain blocks sampled at integer block positions.
-It shows material colors, water, and lava, with generated neighboring chunks used
-to suppress internal boundary faces. Fluids are rendered as opaque colored
-blocks; face lighting is presentation-only. Headless output reports
-`solid_blocks`, `water_blocks`, `lava_blocks`, and `voxel_faces`.
+Both views use the final generated terrain blocks. The smooth view runs marching
+tetrahedra over the continuous density field. Final generated blocks supply a
+3-D filtered density correction for carvers, aquifer barriers, and material
+extensions. Only that correction is filtered, leaving unedited 7A density intact.
+The reconstruction rounds rasterized carve boundaries rather than pinning every
+crossing to a block edge; one-block details can be rounded off. Crossings use the
+generated solid material. Separate water/lava surfaces preserve submerged ocean
+floors and cave walls; the voxel view emits block faces. Generated neighboring chunks provide
+consistent mesh samples and suppress internal voxel boundary faces. Fluids are
+rendered as opaque colored material; lighting is presentation-only. Headless
+output reports `mesh_triangles` and, with `--voxel`, `solid_blocks`,
+`water_blocks`, `lava_blocks`, and `voxel_faces`.
 
 Generation includes:
 
@@ -144,10 +151,11 @@ Router instances cache samples and must be used by one thread at a time, with
 stable blending/beardifier inputs. Invalid or out-of-range sampling coordinates
 throw `std::invalid_argument`.
 
-Mesh positions are chunk-local in X/Z and use world Y. Extraction accepts Y
-bounds within `[-64, 320]` and samples a one-block halo for consistent boundary
-normals. Meshes are open at the chunk boundary; the viewer starts above the
-selected area's highest surface, with framing scaled to the area size.
+The public 7A density extractor produces chunk-local X/Z positions and world Y.
+It accepts Y bounds within `[-64, 320]` and samples a one-block halo for
+consistent boundary normals. Its meshes are open at chunk boundaries. The
+viewer instead meshes final 7B blocks and starts above the selected area's
+highest generated surface, with framing scaled to the area size.
 
 ## Working on the density graph
 
@@ -189,6 +197,7 @@ Java-derived biome slice, full carving-mask, biome zoom, and iceberg-temperature
 fixtures. The separate
 `terrain_tests` executable can be selected with CTest's `-R '^terrain_tests$'`.
 
-The smooth view remains the 7A density isosurface. The voxel view shows the 7B
-terrain result, so the two can differ where aquifers, materials, or carvers alter
-blocks. Step 8 features and decoration are not generated.
+The smooth and voxel views are two presentations of the same stage 6/7A/7B
+terrain result. The standalone `buildChunkIsosurface` API remains available for
+inspecting the raw 7A density field. Step 8 features and decoration are not
+generated.
