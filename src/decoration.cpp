@@ -123,7 +123,7 @@ public:
     // Outside the build height there is nothing rather than an error, which is
     // what lets features probe above and below themselves without clamping.
     // Outside the 3x3, however, the caller is at fault, so `chunkAt` throws.
-    [[nodiscard]] Block at(int x, int y, int z) const {
+    [[nodiscard]] Block at(int x, int y, int z) const override {
         if (y < TerrainChunk::minY || y >= TerrainChunk::maxY) return Block::Air;
         return chunkAt(x, z).at(localBlock(x), y, localBlock(z));
     }
@@ -131,7 +131,7 @@ public:
     // Block-resolution biome lookup, jittered like `BiomeManager.getBiome`.
     // The jitter can select a quart cell in a neighbouring chunk, so this
     // resolves the owning chunk from the *cell*, not from the query position.
-    [[nodiscard]] Biome biomeAt(int x, int y, int z) const {
+    [[nodiscard]] Biome biomeAt(int x, int y, int z) const override {
         const BlockPosition cell = zoomedBiomeQuart(biomeZoomSeed_, x, y, z);
         const int cellX = cell.x * kQuartSize;
         const int cellZ = cell.z * kQuartSize;
@@ -139,23 +139,21 @@ public:
         return chunkAt(cellX, cellZ).biomeAt(localBlock(cellX), paletteY, localBlock(cellZ));
     }
 
-    [[nodiscard]] int worldSurface(int x, int z) const { return height(&TerrainChunk::worldSurface, x, z); }
-    [[nodiscard]] int oceanFloor(int x, int z) const { return height(&TerrainChunk::oceanFloor, x, z); }
-    [[nodiscard]] int motionBlocking(int x, int z) const { return height(&TerrainChunk::motionBlocking, x, z); }
-
+    // The heightmaps placement modifiers can ask for. A chunk also keeps
+    // `motionBlockingNoLeaves`, which `set` maintains but no placement reads.
     int height(FeatureHeightmap type, int x, int z) const override {
         switch (type) {
-        case FeatureHeightmap::WorldSurface: return worldSurface(x, z);
-        case FeatureHeightmap::OceanFloor: return oceanFloor(x, z);
-        case FeatureHeightmap::MotionBlocking: return motionBlocking(x, z);
+        case FeatureHeightmap::WorldSurface: return column(&TerrainChunk::worldSurface, x, z);
+        case FeatureHeightmap::OceanFloor: return column(&TerrainChunk::oceanFloor, x, z);
+        case FeatureHeightmap::MotionBlocking: return column(&TerrainChunk::motionBlocking, x, z);
         }
+        // Unreachable for a declared enumerator; a value cast in from outside
+        // gets the build floor rather than an arbitrary map.
         return TerrainChunk::minY;
     }
 
     bool canWrite(BlockPosition p) const override {
-        return p.y >= TerrainChunk::minY && p.y < TerrainChunk::maxY
-            && std::abs(floorDiv(p.x, 16) - center_.x) <= kFeatureWriteRadius
-            && std::abs(floorDiv(p.z, 16) - center_.z) <= kFeatureWriteRadius;
+        return p.y >= TerrainChunk::minY && p.y < TerrainChunk::maxY && insideRegion(p.x, p.z);
     }
 
     void setData(int x, int y, int z, std::shared_ptr<const BlockData> data) override {
@@ -170,7 +168,7 @@ public:
     // post-processing and all four heightmaps. A write that changes nothing is
     // dropped before any of that, so re-placing an identical block is free and
     // does not queue duplicate fluid work.
-    void set(int x, int y, int z, Block block) {
+    void set(int x, int y, int z, Block block) override {
         if (y < TerrainChunk::minY || y >= TerrainChunk::maxY) return;
         requireInsideRegion(x, z);
 
@@ -211,10 +209,17 @@ private:
         }
     }
 
-    void requireInsideRegion(int x, int z) const {
+    // Whether a world X/Z falls in one of the nine chunks this region covers.
+    // `canWrite` lets a feature ask; `set` enforces it, because a write that
+    // landed outside would be silently lost in a chunk nobody harvests.
+    [[nodiscard]] bool insideRegion(int x, int z) const {
         const int chunkX = floorDiv(x, TerrainChunk::width);
         const int chunkZ = floorDiv(z, TerrainChunk::width);
-        if (std::max(std::abs(chunkX - center_.x), std::abs(chunkZ - center_.z)) > kFeatureWriteRadius) {
+        return std::max(std::abs(chunkX - center_.x), std::abs(chunkZ - center_.z)) <= kFeatureWriteRadius;
+    }
+
+    void requireInsideRegion(int x, int z) const {
+        if (!insideRegion(x, z)) {
             throw std::out_of_range("Feature write left its 3x3 WorldGenRegion");
         }
     }
@@ -230,7 +235,7 @@ private:
         return const_cast<TerrainChunk&>(std::as_const(*this).chunkAt(x, z));
     }
 
-    [[nodiscard]] int height(TerrainChunk::Heightmap TerrainChunk::*map, int x, int z) const {
+    [[nodiscard]] int column(TerrainChunk::Heightmap TerrainChunk::*map, int x, int z) const {
         return (chunkAt(x, z).*map)[columnIndex(x, z)];
     }
 
@@ -241,44 +246,53 @@ private:
 
 // --- Structure pieces ------------------------------------------------------
 
-// Java: `StructurePiece.postProcess`, clipped to the chunk being decorated.
-// Pieces are placed once per chunk they overlap, so the clip is what keeps a
-// piece spanning a chunk border from being written twice.
-void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosition chunk, WorldgenRandom& random) {
+// The world-coordinate rectangle a piece may write in this chunk: its own
+// footprint clipped to the chunk being decorated. Empty when the two do not
+// meet, which is how a piece spanning a border is written exactly once, by the
+// chunk it belongs to and not again by its neighbour.
+struct PieceClip {
+    int minX{};
+    int minZ{};
+    int maxX{};
+    int maxZ{};
+
+    [[nodiscard]] bool empty() const { return minX > maxX || minZ > maxZ; }
+    [[nodiscard]] bool contains(int x, int z) const { return x >= minX && x <= maxX && z >= minZ && z <= maxZ; }
+};
+
+[[nodiscard]] PieceClip clipToChunk(const BoundingBox& box, ChunkPosition chunk) {
     const auto [originX, originZ] = blockOrigin(chunk);
-    const BoundingBox& box = piece.bounds;
-    const int minX = std::max(box.minX, originX);
-    const int minZ = std::max(box.minZ, originZ);
-    const int maxX = std::min(box.maxX, originX + TerrainChunk::width - 1);
-    const int maxZ = std::min(box.maxZ, originZ + TerrainChunk::width - 1);
-    if (minX > maxX || minZ > maxZ) return;
-    if (!piece.feature.empty()) {
-        FeatureContext context{region, random, {}};
-        (void)placePoolFeature(piece.feature, context, {box.minX, box.minY, box.minZ});
-        return;
-    }
+    return {std::max(box.minX, originX),
+            std::max(box.minZ, originZ),
+            std::min(box.maxX, originX + TerrainChunk::width - 1),
+            std::min(box.maxZ, originZ + TerrainChunk::width - 1)};
+}
 
-    if (piece.templatePiece) {
-        for (const auto& block : piece.blocks) {
-            const auto [x, y, z] = block.position;
-            if (x >= minX && x <= maxX && z >= minZ && z <= maxZ && y > TerrainChunk::minY && y < TerrainChunk::maxY) {
-                std::shared_ptr<const BlockData> data;
-                if (const auto processed = processStructureBlock(block, region.at(x, y, z), piece.processors, &data)) {
-                    region.set(x, y, z, *processed);
-                    region.setData(x, y, z, std::move(data));
-                }
-            }
+// A template piece writes the block states the catalog gave it, each first run
+// through the element's processors. A processor can veto a block outright, in
+// which case whatever terrain put there stays.
+void placeTemplateBlocks(DecorationRegion& region, const StructurePiece& piece, const PieceClip& clip) {
+    for (const auto& block : piece.blocks) {
+        const auto [x, y, z] = block.position;
+        if (!clip.contains(x, z) || y <= TerrainChunk::minY || y >= TerrainChunk::maxY) continue;
+        std::shared_ptr<const BlockData> data;
+        if (const auto processed = processStructureBlock(block, region.at(x, y, z), piece.processors, &data)) {
+            region.set(x, y, z, *processed);
+            region.setData(x, y, z, std::move(data));
         }
-        return;
     }
+}
 
+// Stage 5's procedural footprints: one material, optionally hollowed out.
+void placeBox(DecorationRegion& region, const StructurePiece& piece, const PieceClip& clip) {
+    const BoundingBox& box = piece.bounds;
     // The bedrock floor at `minY` is never overwritten, so the vertical span
     // starts one above it.
     const int minY = std::max(box.minY, TerrainChunk::minY + 1);
     const int maxY = std::min(box.maxY, TerrainChunk::maxY - 1);
 
-    for (int z = minZ; z <= maxZ; ++z) {
-        for (int x = minX; x <= maxX; ++x) {
+    for (int z = clip.minZ; z <= clip.maxZ; ++z) {
+        for (int x = clip.minX; x <= clip.maxX; ++x) {
             for (int y = minY; y <= maxY; ++y) {
                 const bool onShell = x == box.minX || x == box.maxX
                     || y == box.minY || y == box.maxY
@@ -287,12 +301,35 @@ void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosi
                     region.set(x, y, z, piece.block);
                 } else if (region.at(x, y, z) != Block::Bedrock) {
                     // Hollow out the interior, but never punch through bedrock
-                    // the clip above could not exclude.
+                    // the vertical clip above could not exclude.
                     region.set(x, y, z, Block::Air);
                 }
             }
         }
     }
+}
+
+// Java: `StructurePiece.postProcess`. A piece is one of three things, and the
+// order of the tests is the order Java resolves them in: a pool element that
+// runs a feature, a pool element that carries block states, or one of stage
+// 5's own boxes.
+void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosition chunk, WorldgenRandom& random) {
+    const PieceClip clip = clipToChunk(piece.bounds, chunk);
+    if (clip.empty()) return;
+
+    if (!piece.feature.empty()) {
+        // Feature elements place themselves from the box corner and do their
+        // own bounds handling, so the clip is only the "does it reach here"
+        // test above.
+        FeatureContext context{region, random, {}};
+        (void)placePoolFeature(piece.feature, context, {piece.bounds.minX, piece.bounds.minY, piece.bounds.minZ});
+        return;
+    }
+    if (piece.templatePiece) {
+        placeTemplateBlocks(region, piece, clip);
+        return;
+    }
+    placeBox(region, piece, clip);
 }
 
 // --- Feature placement -----------------------------------------------------
@@ -353,13 +390,26 @@ struct FeatureCatalog {
     FeatureCatalog();
 };
 
+// Java's `#minecraft:stone_ore_replaceables` and
+// `#minecraft:deepslate_ore_replaceables`: what an ore may replace, and which
+// of its two block forms it takes when it does.
+[[nodiscard]] bool stoneReplaceable(Block block) {
+    return block == Block::Stone || block == Block::Granite || block == Block::Diorite || block == Block::Andesite;
+}
+
+[[nodiscard]] bool deepslateReplaceable(Block block) {
+    return block == Block::Deepslate || block == Block::Tuff;
+}
+
 FeatureCatalog::FeatureCatalog() {
     using namespace placement;
+    // Every ore shares one placement shape - a count or rarity roll, a random
+    // column in the chunk, a height from the given distribution, then the
+    // biome gate - and differs only in the blob parameters. The tail of the
+    // argument list is the ore's biome restriction, defaulting to all of them.
     const auto addOre = [&](std::string name, Block stoneOre, Block deepOre, int size, float discard,
                             PlacementModifier frequency, IntProvider height, bool (*biomes)(Biome) = everyBiome) {
-        std::vector<OreTarget> targets{
-            {[](Block b) { return b == Block::Stone || b == Block::Granite || b == Block::Diorite || b == Block::Andesite; }, stoneOre},
-            {[](Block b) { return b == Block::Deepslate || b == Block::Tuff; }, deepOre}};
+        std::vector<OreTarget> targets{{stoneReplaceable, stoneOre}, {deepslateReplaceable, deepOre}};
         features.push_back({std::move(name), DecorationStep::UndergroundOres, biomes,
             {oreFeature(std::move(targets), size, discard), {std::move(frequency), square(), heightRange(std::move(height)), biome()}}});
     };
@@ -426,6 +476,70 @@ FeatureCatalog::FeatureCatalog() {
     order = sortFeatures(lists);
 }
 
+// Java: `ChunkGenerator.applyBiomeDecoration`, structure half. Every variant
+// of every kind registered to this step consumes an index whether or not this
+// chunk references one, because the index comes from the registry rather than
+// from what happens to be nearby. That is what keeps a chunk's feature seeds
+// independent of its neighbours.
+void placeStepStructures(
+    DecorationRegion& region,
+    const StructureIndex& structures,
+    const std::vector<StructureReference>& references,
+    ChunkPosition chunk,
+    int stepOrdinal,
+    std::uint64_t decorationSeed,
+    WorldgenRandom& random
+) {
+    const auto step = static_cast<DecorationStep>(stepOrdinal);
+    int indexInStep = 0;
+    for (std::size_t kind = 0; kind < kStructureKindCount; ++kind) {
+        const auto structure = static_cast<StructureKind>(kind);
+        if (structureStep(structure) != step) continue;
+        for (StructureVariant variant : structureVariants(structure)) {
+            random.setFeatureSeed(decorationSeed, indexInStep++, stepOrdinal);
+            for (const StructureReference& reference : references) {
+                if (reference.kind != structure) continue;
+                const StructureStart* start = structures.resolve(reference);
+                if (start == nullptr || start->variant != variant) continue;
+                for (const StructurePiece& piece : start->pieces) {
+                    placePiece(region, piece, chunk, random);
+                }
+            }
+        }
+    }
+}
+
+// Java: `ChunkGenerator.applyBiomeDecoration`, feature half. Indexed by the
+// same rule: a feature that no nearby biome registers still consumes its
+// index, it just does not run.
+void placeStepFeatures(
+    DecorationRegion& region,
+    const FeatureCatalog& catalog,
+    const BiomeSet& present,
+    BlockOrigin origin,
+    int stepOrdinal,
+    std::uint64_t decorationSeed,
+    WorldgenRandom& random
+) {
+    int indexInStep = 0;
+    for (FeatureId id : catalog.order[stepOrdinal]) {
+        const FeatureDefinition& feature = catalog.features[id];
+        const int index = indexInStep++;
+        if (!anyBiome(present, feature.registeredIn)) continue;
+        random.setFeatureSeed(decorationSeed, index, stepOrdinal);
+        FeatureContext context{region, random, feature.registeredIn};
+        (void)feature.placed.place(context, {origin.x, TerrainChunk::minY, origin.z});
+    }
+}
+
+// Built once per process. The ordering it computes is global - it depends on
+// every biome's feature list, not on any chunk - and computing it involves a
+// graph sort, so there is nothing to gain from rebuilding it per chunk.
+[[nodiscard]] const FeatureCatalog& featureCatalog() {
+    static const FeatureCatalog catalog;
+    return catalog;
+}
+
 } // namespace
 
 void decorateChunk(ChunkMap& chunks, const StructureIndex& structures, ChunkPosition chunk) {
@@ -433,48 +547,20 @@ void decorateChunk(ChunkMap& chunks, const StructureIndex& structures, ChunkPosi
     DecorationRegion region(chunks, chunk, seed);
     const std::vector<StructureReference>& references = structures.references(chunk);
     const BiomeSet present = collectBiomes(chunks, chunk);
-    static const FeatureCatalog catalog;
+    const BlockOrigin origin = blockOrigin(chunk);
 
     // Java: `setDecorationSeed`. One seed per chunk, derived from the world
-    // seed and the chunk's origin, that every feature below reseeds from.
-    WorldgenRandom random(0); // The initial seed is irrelevant; the next line replaces it.
-    const auto [originX, originZ] = blockOrigin(chunk);
-    const std::uint64_t decorationSeed = random.setDecorationSeed(seed, originX, originZ);
+    // seed and the chunk's origin, that every step below reseeds from. The
+    // random's own initial seed is irrelevant - it is replaced here - but it
+    // is the same object throughout, because a feature may leave its stream
+    // mid-draw and the next `setFeatureSeed` is what resets it.
+    WorldgenRandom random(0);
+    const std::uint64_t decorationSeed = random.setDecorationSeed(seed, origin.x, origin.z);
 
     for (int stepOrdinal = 0; stepOrdinal < kDecorationStepCount; ++stepOrdinal) {
-        const auto step = static_cast<DecorationStep>(stepOrdinal);
-
-        // Structures first. Every kind registered to this step consumes an
-        // index whether or not this chunk references one, because the index
-        // comes from the registry, not from what is present.
-        int indexInStep = 0;
-        for (std::size_t kind = 0; kind < kStructureKindCount; ++kind) {
-            const auto structure = static_cast<StructureKind>(kind);
-            if (structureStep(structure) != step) continue;
-            for (StructureVariant variant : structureVariants(structure)) {
-                random.setFeatureSeed(decorationSeed, indexInStep++, stepOrdinal);
-                for (const StructureReference& reference : references) {
-                    if (reference.kind != structure) continue;
-                    if (const StructureStart* start = structures.resolve(reference); start && start->variant == variant) {
-                        for (const StructurePiece& piece : start->pieces) {
-                            placePiece(region, piece, chunk, random);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Then biome decoration, indexed the same way: a feature no nearby
-        // biome registers still consumes its index, it just does not run.
-        indexInStep = 0;
-        for (FeatureId id : catalog.order[stepOrdinal]) {
-            const auto& feature = catalog.features[id];
-            const int index = indexInStep++;
-            if (!anyBiome(present, feature.registeredIn)) continue;
-            random.setFeatureSeed(decorationSeed, index, stepOrdinal);
-            FeatureContext context{region, random, feature.registeredIn};
-            (void)feature.placed.place(context, {originX, TerrainChunk::minY, originZ});
-        }
+        // Structures before features, within every step.
+        placeStepStructures(region, structures, references, chunk, stepOrdinal, decorationSeed, random);
+        placeStepFeatures(region, featureCatalog(), present, origin, stepOrdinal, decorationSeed, random);
     }
 }
 

@@ -5,7 +5,9 @@
 #include "terrain_internal.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
+#include <map>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -149,20 +151,54 @@ void testStructureMetadata() {
           "structure option disables starts and references");
 }
 
+class TestFeatureWorld final : public mcworld::detail::FeatureWorld {
+public:
+    int ceiling = 64;
+    mcworld::Biome biome = mcworld::Biome::Plains;
+    std::map<std::tuple<int, int, int>, mcworld::Block> edits;
+    mcworld::Block at(int x, int y, int z) const override {
+        const auto it = edits.find({x, y, z});
+        return it == edits.end() ? (y < ceiling ? mcworld::Block::Stone : mcworld::Block::Air) : it->second;
+    }
+    void set(int x, int y, int z, mcworld::Block b) override { edits[{x, y, z}] = b; }
+    mcworld::Biome biomeAt(int, int, int) const override { return biome; }
+    int height(mcworld::detail::FeatureHeightmap, int, int) const override { return ceiling; }
+    bool canWrite(mcworld::BlockPosition p) const override { return p.y >= -64 && p.y < 320; }
+};
+
+// Places a water spring at the origin in a world whose relevant neighbourhood
+// is exactly the blocks given, and reports whether a source was written. This
+// drives the shipped SpringFeature rather than a second copy of its rule.
+bool waterSpringPlaces(mcworld::Block current, mcworld::Block above, mcworld::Block below,
+                       const std::array<mcworld::Block, 4>& sides) {
+    using namespace mcworld;
+    using namespace mcworld::detail;
+    TestFeatureWorld world;
+    world.edits[{0, 0, 0}] = current;
+    world.edits[{0, 1, 0}] = above;
+    world.edits[{0, -1, 0}] = below;
+    world.edits[{-1, 0, 0}] = sides[0];
+    world.edits[{1, 0, 0}] = sides[1];
+    world.edits[{0, 0, -1}] = sides[2];
+    world.edits[{0, 0, 1}] = sides[3];
+    WorldgenRandom random(1);
+    FeatureContext context{world, random, {}};
+    return springFeature(Block::Water, springRock)(context, {0, 0, 0});
+}
+
 void testSpringRules() {
     using enum mcworld::Block;
-    using mcworld::detail::canPlaceWaterSpring;
     const std::array sides{Stone, Granite, Tuff, Air};
-    check(canPlaceWaterSpring(Air, Calcite, Dirt, sides), "spring accepts air origin and valid non-stone rocks");
-    check(canPlaceWaterSpring(Deepslate, Stone, Stone, sides), "spring accepts replaceable rock origin");
-    check(!canPlaceWaterSpring(Stone, Air, Stone, {Stone, Stone, Stone, Stone}),
+    check(waterSpringPlaces(Air, Calcite, Dirt, sides), "spring accepts air origin and valid non-stone rocks");
+    check(waterSpringPlaces(Deepslate, Stone, Stone, sides), "spring accepts replaceable rock origin");
+    check(!waterSpringPlaces(Stone, Air, Stone, {Stone, Stone, Stone, Stone}),
           "spring cannot use a ceiling hole even with five solid neighbors");
-    check(!canPlaceWaterSpring(Stone, Stone, Air, {Stone, Stone, Stone, Stone}),
+    check(!waterSpringPlaces(Stone, Stone, Air, {Stone, Stone, Stone, Stone}),
           "water spring requires valid rock below");
-    check(!canPlaceWaterSpring(Stone, Stone, Stone, {OakPlanks, Stone, Stone, Air}),
+    check(!waterSpringPlaces(Stone, Stone, Stone, {OakPlanks, Stone, Stone, Air}),
           "spring rock count uses configured blocks rather than motion blocking");
-    check(!canPlaceWaterSpring(Water, Stone, Stone, sides), "spring does not replace fluid origin");
-    check(!canPlaceWaterSpring(Stone, Stone, Stone, {Stone, Stone, Air, Air}), "spring requires exactly one hole");
+    check(!waterSpringPlaces(Water, Stone, Stone, sides), "spring does not replace fluid origin");
+    check(!waterSpringPlaces(Stone, Stone, Stone, {Stone, Stone, Air, Air}), "spring requires exactly one hole");
 }
 
 void testBeardKernel() {
@@ -264,21 +300,6 @@ void testAreaValidation() {
     } catch (const std::overflow_error&) { rejected = true; }
     check(rejected, "bounding-box inflation rejects integer overflow");
 }
-
-class TestFeatureWorld final : public mcworld::detail::FeatureWorld {
-public:
-    int ceiling = 64;
-    mcworld::Biome biome = mcworld::Biome::Plains;
-    std::map<std::tuple<int, int, int>, mcworld::Block> edits;
-    mcworld::Block at(int x, int y, int z) const override {
-        const auto it = edits.find({x, y, z});
-        return it == edits.end() ? (y < ceiling ? mcworld::Block::Stone : mcworld::Block::Air) : it->second;
-    }
-    void set(int x, int y, int z, mcworld::Block b) override { edits[{x, y, z}] = b; }
-    mcworld::Biome biomeAt(int, int, int) const override { return biome; }
-    int height(mcworld::detail::FeatureHeightmap, int, int) const override { return ceiling; }
-    bool canWrite(mcworld::BlockPosition p) const override { return p.y >= -64 && p.y < 320; }
-};
 
 void testFeatureSorterAndModifiers() {
     using namespace mcworld;

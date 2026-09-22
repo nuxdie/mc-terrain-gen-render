@@ -4,15 +4,21 @@
 //
 // The stage answers three questions, in this order:
 //
-//   1. does a chunk start a structure?   `isPlacementChunk` + biome check
-//   2. what does that start look like?   `makeStart`
+//   1. does a chunk start a structure?   `isPlacementChunk`
+//   2. which variant, and what does it
+//      look like?                        `tryVariant` -> `makeStart`
+//                                        or `detail::assembleJigsaw`
 //   3. which chunks does it reach into?  `StructureIndex::references`
+//
+// A variant has two possible shapes. With a template catalog loaded it is a
+// real jigsaw assembly (src/structure_templates.cpp); without one - or for a
+// variant the catalog does not cover - it is `makeStart`'s placeholder
+// footprint, which has the right placement and the right terrain adaptation
+// but not the right contents. See README for that boundary.
 //
 // Everything is a pure function of the seed and the chunk position, which is
 // what lets `StructureIndex` memoize and lets neighbours be generated in any
-// order. See README for how far the piece lists go: they are placeholder
-// footprints with the right placement and the right terrain adaptation, not the
-// full template structures.
+// order.
 
 #include "generation_internal.hpp"
 #include "mcworld/structure_templates.hpp"
@@ -22,6 +28,7 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 
 namespace mcworld {
@@ -108,30 +115,79 @@ static_assert([] {
 
 // --- Biome eligibility -----------------------------------------------------
 
-bool variantBiome(StructureVariant variant, Biome biome) {
+// The biome families structure placement is written against. Each is a plain
+// membership test on the registered biome list rather than a tag lookup, so
+// adding a biome to `Biome` means revisiting the ones it belongs to here.
+
+[[nodiscard]] bool isBadlands(Biome biome) {
+    return biome == Biome::Badlands || biome == Biome::ErodedBadlands || biome == Biome::WoodedBadlands;
+}
+
+// The oceans are one contiguous run in registration order, which is what makes
+// this a range test. The assert is the thing that stops a future insertion
+// into `Biome` from silently widening it.
+[[nodiscard]] bool isOcean(Biome biome) {
+    static_assert(static_cast<int>(Biome::WarmOcean) - static_cast<int>(Biome::Ocean) == 8
+        && static_cast<int>(Biome::DripstoneCaves) == static_cast<int>(Biome::WarmOcean) + 1,
+        "isOcean assumes Ocean..WarmOcean are contiguous and end the ocean run");
+    return biome >= Biome::Ocean && biome <= Biome::WarmOcean;
+}
+
+[[nodiscard]] bool isJungle(Biome biome) {
+    return biome == Biome::Jungle || biome == Biome::SparseJungle || biome == Biome::BambooJungle;
+}
+
+[[nodiscard]] bool isSwamp(Biome biome) {
+    return biome == Biome::Swamp || biome == Biome::MangroveSwamp;
+}
+
+// Java's `#minecraft:is_mountain` as the ruined portal uses it, which also
+// takes in the badlands and the windswept biomes.
+[[nodiscard]] bool isMountainous(Biome biome) {
+    using enum Biome;
+    if (isBadlands(biome)) return true;
+    switch (biome) {
+    case WindsweptHills:
+    case WindsweptForest:
+    case WindsweptGravellyHills:
+    case SavannaPlateau:
+    case WindsweptSavanna:
+    case StonyShore:
+    case Meadow:
+    case CherryGrove:
+    case SnowySlopes:
+    case FrozenPeaks:
+    case JaggedPeaks:
+    case StonyPeaks:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Whether a variant is allowed to generate in a biome. `Generic` and
+// `PortalNether` never are: the first is the unset value, the second belongs
+// to a dimension this port does not generate.
+[[nodiscard]] bool variantBiome(StructureVariant variant, Biome biome) {
     using enum StructureVariant;
-    const bool badlands = biome == Biome::Badlands || biome == Biome::ErodedBadlands || biome == Biome::WoodedBadlands;
-    const bool ocean = biome >= Biome::Ocean && biome <= Biome::WarmOcean;
-    const bool jungle = biome == Biome::Jungle || biome == Biome::SparseJungle || biome == Biome::BambooJungle;
-    const bool swamp = biome == Biome::Swamp || biome == Biome::MangroveSwamp;
-    const bool mountain = badlands || biome == Biome::WindsweptHills || biome == Biome::WindsweptForest
-        || biome == Biome::WindsweptGravellyHills || biome == Biome::SavannaPlateau || biome == Biome::WindsweptSavanna
-        || biome == Biome::StonyShore || biome == Biome::Meadow || biome == Biome::CherryGrove
-        || biome == Biome::SnowySlopes || biome == Biome::FrozenPeaks || biome == Biome::JaggedPeaks || biome == Biome::StonyPeaks;
     switch (variant) {
     case VillagePlains: return biome == Biome::Plains || biome == Biome::Meadow;
     case VillageDesert: return biome == Biome::Desert;
     case VillageSavanna: return biome == Biome::Savanna;
     case VillageSnowy: return biome == Biome::SnowyPlains;
     case VillageTaiga: return biome == Biome::Taiga;
-    case Mineshaft: return !badlands && biome != Biome::DeepDark;
-    case MineshaftMesa: return badlands;
+    case Mineshaft: return !isBadlands(biome) && biome != Biome::DeepDark;
+    case MineshaftMesa: return isBadlands(biome);
     case PortalDesert: return biome == Biome::Desert;
-    case PortalJungle: return jungle;
-    case PortalSwamp: return swamp;
-    case PortalOcean: return ocean;
-    case PortalMountain: return mountain;
-    case PortalStandard: return !ocean && !mountain && !jungle && !swamp && biome != Biome::Desert && biome != Biome::DeepDark;
+    case PortalJungle: return isJungle(biome);
+    case PortalSwamp: return isSwamp(biome);
+    case PortalOcean: return isOcean(biome);
+    case PortalMountain: return isMountainous(biome);
+    // The standard portal is the leftover: everywhere the specialized portals
+    // above do not claim.
+    case PortalStandard:
+        return !isOcean(biome) && !isMountainous(biome) && !isJungle(biome) && !isSwamp(biome)
+            && biome != Biome::Desert && biome != Biome::DeepDark;
     case PortalNether: return false;
     case AncientCity: return biome == Biome::DeepDark;
     case Generic: return false;
@@ -198,6 +254,57 @@ constexpr int kAncientCityY = -48;
         };
         break;
     }
+    return start;
+}
+
+// --- Start selection -------------------------------------------------------
+
+// The context a start attempt shares across every variant of one kind, so that
+// the per-variant function below stays a readable signature.
+struct StartAttempt {
+    const OverworldNoiseRouter& router;
+    const BiomeSource& biomes;
+    const StructureTemplateCatalog* templates;
+    const StructureDefinition& definition;
+    ChunkPosition chunk;
+    // The biome at the kind's own generation point, and the Y it was read at.
+    Biome biome;
+    int generationY;
+};
+
+// Java: `Structure.generate` for one candidate variant. `std::nullopt` means
+// "not this variant here", which is what makes the weighted selection drop it
+// and try the next one.
+[[nodiscard]] std::optional<StructureStart> tryVariant(const StartAttempt& attempt, StructureVariant variant) {
+    const bool fromTemplates = attempt.templates != nullptr && attempt.templates->starts.contains(variant);
+    // A procedural variant is accepted or rejected on the kind's generation
+    // point. A template one cannot be: the jigsaw picks its own point, so the
+    // biome is checked below, once that point is known.
+    if (!fromTemplates && !variantBiome(variant, attempt.biome)) return std::nullopt;
+
+    if (!fromTemplates) {
+        StructureStart start = makeStart(attempt.definition, attempt.router, attempt.chunk);
+        start.variant = variant;
+        if (!start.valid()) return std::nullopt;
+        return start;
+    }
+
+    StructureStart start{attempt.definition.kind, attempt.chunk, attempt.definition.adjustment,
+                         attempt.definition.step, {}};
+    // A stream of its own, seeded from the chunk rather than continued from
+    // the variant selection, so that the assembled shape does not depend on
+    // how many variants were rejected before this one.
+    auto random = detail::largeFeatureRandom(attempt.router.seed(), attempt.chunk.x, attempt.chunk.z);
+    const BlockPosition origin{detail::chunkMinBlock(attempt.chunk.x), attempt.generationY,
+                               detail::chunkMinBlock(attempt.chunk.z)};
+    BlockPosition generationPoint{};
+    start.pieces = detail::assembleJigsaw(*attempt.templates, variant, origin, random,
+        [&](int x, int z) { return surfaceY(attempt.router, x, z); }, &generationPoint);
+    if (!start.valid()) return std::nullopt;
+
+    const Biome placed = attempt.biomes.sample(attempt.router, generationPoint.x, generationPoint.y, generationPoint.z);
+    if (!variantBiome(variant, placed)) return std::nullopt;
+    start.variant = variant;
     return start;
 }
 
@@ -335,41 +442,29 @@ const std::vector<StructureStart>& StructureIndex::starts(ChunkPosition chunk) c
     std::vector<StructureStart> result;
     if (enabled_) {
         const auto [centerX, centerZ] = middleBlock(chunk);
-        for (const auto& definition : kStructures) {
+        for (const StructureDefinition& definition : kStructures) {
             if (!isPlacementChunk(definition, router_->seed(), chunk)) continue;
+
             // Java checks the biome at the structure's own generation point,
             // which for the ancient city is its fixed depth rather than the
             // surface.
-            const int y = definition.kind == StructureKind::AncientCity
+            const int generationY = definition.kind == StructureKind::AncientCity
                 ? kAncientCityY
                 : surfaceY(*router_, centerX, centerZ);
-            const Biome biome = biomes_->sample(*router_, centerX, y, centerZ);
+            const StartAttempt attempt{*router_, *biomes_, templates_, definition, chunk,
+                                       biomes_->sample(*router_, centerX, generationY, centerZ), generationY};
+
+            // Every variant of a kind carries the same weight; selection keeps
+            // drawing from the ones that are left until one is accepted.
             const auto& variants = structureVariants(definition.kind);
-            auto selectionRandom = largeFeatureRandom(router_->seed(), chunk.x, chunk.z);
-            (void)selectWeightedStructure(std::vector<int>(variants.size(), 1), selectionRandom, [&](std::size_t index) {
-                const auto variant = variants[index];
-                const bool templateStart = templates_ && templates_->starts.contains(variant);
-                if (!templateStart && !variantBiome(variant, biome)) return false;
-                StructureStart start;
-                if (templateStart) {
-                    start.kind = definition.kind;
-                    start.source = chunk;
-                    start.adjustment = definition.adjustment;
-                    start.step = definition.step;
-                    auto random = largeFeatureRandom(router_->seed(), chunk.x, chunk.z);
-                    BlockPosition generationPoint;
-                    start.pieces = assembleJigsaw(*templates_, variant, {chunkMinBlock(chunk.x), y, chunkMinBlock(chunk.z)},
-                        random, [&](int x, int z) { return surfaceY(*router_, x, z); }, &generationPoint);
-                    if (!start.valid()) return false;
-                    if (!variantBiome(variant, biomes_->sample(*router_, generationPoint.x, generationPoint.y, generationPoint.z))) return false;
-                } else {
-                    start = makeStart(definition, *router_, chunk);
-                }
-                start.variant = variant;
-                if (!start.valid()) return false;
-                result.push_back(std::move(start));
-                return true;
-            });
+            auto selection = largeFeatureRandom(router_->seed(), chunk.x, chunk.z);
+            (void)selectWeightedStructure(std::vector<int>(variants.size(), 1), selection,
+                [&](std::size_t index) {
+                    std::optional<StructureStart> start = tryVariant(attempt, variants[index]);
+                    if (!start) return false;
+                    result.push_back(std::move(*start));
+                    return true;
+                });
         }
     }
     return starts_.emplace(chunk, std::move(result)).first->second;

@@ -154,12 +154,40 @@ private:
 // position among those sharing its step is therefore its index for
 // `WorldgenRandom::setFeatureSeed`.
 [[nodiscard]] DecorationStep structureStep(StructureKind kind);
+
+// The variants of a kind, in the order stage 8 indexes them by. Like the kind
+// order above, this is part of the feature seed and cannot be sorted.
 [[nodiscard]] const std::vector<StructureVariant>& structureVariants(StructureKind kind);
+
+// Java: `StructureSet`'s weighted selection with retry. Draws a candidate in
+// proportion to its weight and calls `generate`; on false the candidate is
+// removed and another is drawn, until one succeeds or none are left. Returns
+// the selected index, or -1 when none generated.
+//
+// A single-candidate set takes the direct path and consumes no draw, which is
+// why this cannot be replaced by an unconditional loop. Throws
+// `std::invalid_argument` for a non-positive weight or a total that overflows.
 [[nodiscard]] int selectWeightedStructure(const std::vector<int>& weights, LegacyRandom& random,
                                          const std::function<bool(std::size_t)>& generate);
+
+// Java: `JigsawPlacement.addPieces`. Builds the piece list for a template-pool
+// variant at `origin`, whose Y the pool's own start height replaces. Empty when
+// the pool cannot produce a root, which the caller reads as "no structure".
+//
+// `surfaceHeight` resolves a column's ground level; it is injected rather than
+// taken from a router so that assembly stays a pure function of its inputs.
+// `generationPoint`, when given, receives the point the structure counts as
+// being at, which is where its biome is checked.
 [[nodiscard]] std::vector<StructurePiece> assembleJigsaw(
     const StructureTemplateCatalog& catalog, StructureVariant variant, BlockPosition origin,
     LegacyRandom& random, const std::function<int(int, int)>& surfaceHeight, BlockPosition* generationPoint = nullptr);
+
+// Java: `StructureTemplate.processBlockInfos`. Runs an element's processors
+// over one template block, given the block already in the world there.
+// `std::nullopt` means the block is dropped and the world keeps what it had.
+//
+// Every decision is seeded from the block's own world position, so pieces and
+// chunks may be processed in any order.
 [[nodiscard]] std::optional<Block> processStructureBlock(
     const StructureBlock& block, Block existing, const std::vector<TemplateProcessor>& processors,
     std::shared_ptr<const BlockData>* outputData = nullptr);
@@ -178,23 +206,15 @@ constexpr int kFeatureWriteRadius = 1;
 // `std::out_of_range` rather than being dropped.
 void decorateChunk(ChunkMap& chunks, const StructureIndex& structures, ChunkPosition chunk);
 
-// MiscOverworldFeatures.SPRING_WATER, restricted to our material palette.
+// Java's `#minecraft:base_stone_overworld` plus the few extra blocks the
+// Overworld spring configurations accept, restricted to this port's palette.
+// The spring rule itself is `springFeature` in src/features.cpp; this is only
+// the "counts as rock" half of it, shared by the water and lava variants.
 [[nodiscard]] inline bool springRock(Block block) {
     using enum Block;
     return block == Stone || block == Granite || block == Diorite || block == Andesite || block == Deepslate || block == Tuff
         || block == Calcite || block == Dirt || block == Snow || block == PowderSnow
         || block == PackedIce;
-}
-
-// SpringFeature counts the four horizontal neighbors and below, not above.
-[[nodiscard]] inline bool canPlaceWaterSpring(
-    Block current, Block above, Block below, const std::array<Block, 4>& sides
-) {
-    if (!springRock(above) || !springRock(below)
-        || (current != Block::Air && !springRock(current))) return false;
-    const int rocks = 1 + std::count_if(sides.begin(), sides.end(), springRock);
-    const int holes = std::count(sides.begin(), sides.end(), Block::Air);
-    return rocks == 4 && holes == 1;
 }
 
 } // namespace mcworld::detail
