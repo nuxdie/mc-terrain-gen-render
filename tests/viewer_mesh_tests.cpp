@@ -56,7 +56,10 @@ int main() {
     for (const auto* mesh : {&left, &right}) {
         check(!mesh->vertices.empty() && mesh->vertices.size() % 3 == 0, "Complete terrain triangles");
         for (const auto& v : mesh->vertices) {
-            check(std::isfinite(v.x + v.y + v.z + v.nx + v.ny + v.nz), "Finite geometry and normals");
+            check(std::isfinite(v.x + v.y + v.z + v.nx + v.ny + v.nz + v.u + v.v),
+                  "Finite geometry, normals and texture coordinates");
+            check(v.u >= 0.0F && v.u <= 1.0F && v.v >= 0.0F && v.v <= 1.0F,
+                  "Smooth texture coordinates stay inside the atlas");
             continuous |= std::abs(v.y * 2 - std::round(v.y * 2)) > 0.01F;
             water |= v.blue > v.red * 2 && v.blue > v.green;
             if (v.x == (mesh == &left ? 16.0F : 0.0F)) {
@@ -67,6 +70,15 @@ int main() {
     check(continuous, "Solid crossings use continuous density, not binary midpoints");
     check(water, "Water has a separate colored surface");
     check(!a.empty() && a == b, "Adjacent chunks agree on seam positions, normals and materials");
+
+    const auto voxel = terrain.buildMesh(-1, 2);
+    std::set<std::pair<int, int>> voxelTiles;
+    for (const auto& v : voxel.vertices) {
+        check(std::isfinite(v.u + v.v) && v.u >= 0.0F && v.u <= 1.0F && v.v >= 0.0F && v.v <= 1.0F,
+              "Voxel texture coordinates stay inside the atlas");
+        voxelTiles.emplace(static_cast<int>(v.u * 8), static_cast<int>(v.v * 6));
+    }
+    check(voxelTiles.size() > 1, "Voxel materials select multiple atlas textures");
 
     mcworld::OverworldTerrainGenerator generator(router);
     const auto blocks = generator.generate(-1, 2);

@@ -5,8 +5,10 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 
 namespace viewer {
@@ -25,6 +27,59 @@ constexpr int kGridSpan = kGridMax - kGridMin + 1;
 constexpr int kGridMinY = kMinY - 2;
 constexpr int kGridMaxY = kMaxY + 2;
 constexpr int kGridHeight = kGridMaxY - kGridMinY + 1;
+constexpr int kAtlasColumns = 8;
+constexpr int kFallbackTileSize = 32;
+
+enum class Tile : int {
+    Bedrock,
+    Calcite,
+    Cinnabar,
+    CoarseDirt,
+    CopperOre,
+    Deepslate,
+    DeepslateIronOre,
+    DeepslateTop,
+    Dirt,
+    Granite,
+    GrassSide,
+    GrassTop,
+    Gravel,
+    Ice,
+    Lava,
+    LightGrayTerracotta,
+    Mud,
+    MyceliumSide,
+    MyceliumTop,
+    OrangeTerracotta,
+    PackedIce,
+    PodzolSide,
+    PodzolTop,
+    PowderSnow,
+    RawCopper,
+    RawIron,
+    RedSand,
+    RedSandstoneSide,
+    RedSandstoneBottom,
+    RedSandstoneTop,
+    RedTerracotta,
+    Sand,
+    SandstoneSide,
+    SandstoneBottom,
+    SandstoneTop,
+    Snow,
+    Stone,
+    Sulfur,
+    Terracotta,
+    Tuff,
+    Water,
+    WhiteTerracotta,
+    YellowTerracotta,
+    BrownTerracotta,
+    Count,
+};
+
+constexpr int kAtlasTiles = static_cast<int>(Tile::Count);
+constexpr int kAtlasRows = (kAtlasTiles + kAtlasColumns - 1) / kAtlasColumns;
 
 struct Occupancy {
     std::array<mcworld::Block, (kChunkSize + 2) * kHeight * (kChunkSize + 2)> blocks{};
@@ -137,46 +192,79 @@ private:
     return static_cast<unsigned char>(std::clamp(value, 0.0F, 255.0F));
 }
 
-[[nodiscard]] std::array<std::uint8_t, 3> faceColor(const Normal& normal, mcworld::Block block) {
+[[nodiscard]] Tile faceTexture(mcworld::Block block, const Normal& normal) {
+    const bool top = normal.y > 0.5F;
+    const bool bottom = normal.y < -0.5F;
+    using enum mcworld::Block;
+    switch (block) {
+    case Air: return Tile::Stone;
+    case Stone: return Tile::Stone;
+    case Water: return Tile::Water;
+    case Lava: return Tile::Lava;
+    case Bedrock: return Tile::Bedrock;
+    case Deepslate: return top || bottom ? Tile::DeepslateTop : Tile::Deepslate;
+    case Grass: return top ? Tile::GrassTop : (bottom ? Tile::Dirt : Tile::GrassSide);
+    case Dirt: return Tile::Dirt;
+    case Sand: return Tile::Sand;
+    case Sandstone: return top ? Tile::SandstoneTop : (bottom ? Tile::SandstoneBottom : Tile::SandstoneSide);
+    case RedSand: return Tile::RedSand;
+    case RedSandstone:
+        return top ? Tile::RedSandstoneTop : (bottom ? Tile::RedSandstoneBottom : Tile::RedSandstoneSide);
+    case Gravel: return Tile::Gravel;
+    case Terracotta: return Tile::Terracotta;
+    case WhiteTerracotta: return Tile::WhiteTerracotta;
+    case OrangeTerracotta: return Tile::OrangeTerracotta;
+    case Podzol: return top ? Tile::PodzolTop : (bottom ? Tile::Dirt : Tile::PodzolSide);
+    case CoarseDirt: return Tile::CoarseDirt;
+    case Mycelium: return top ? Tile::MyceliumTop : (bottom ? Tile::Dirt : Tile::MyceliumSide);
+    case Mud: return Tile::Mud;
+    case Snow: return Tile::Snow;
+    case PowderSnow: return Tile::PowderSnow;
+    case Ice: return Tile::Ice;
+    case PackedIce: return Tile::PackedIce;
+    case Calcite: return Tile::Calcite;
+    case CopperOre: return Tile::CopperOre;
+    case RawCopper: return Tile::RawCopper;
+    case Granite: return Tile::Granite;
+    case DeepslateIronOre: return Tile::DeepslateIronOre;
+    case RawIron: return Tile::RawIron;
+    case Tuff: return Tile::Tuff;
+    case Sulfur: return Tile::Sulfur;
+    case Cinnabar: return Tile::Cinnabar;
+    case YellowTerracotta: return Tile::YellowTerracotta;
+    case BrownTerracotta: return Tile::BrownTerracotta;
+    case RedTerracotta: return Tile::RedTerracotta;
+    case LightGrayTerracotta: return Tile::LightGrayTerracotta;
+    }
+    return Tile::Stone;
+}
+
+[[nodiscard]] std::array<float, 2> atlasCoordinates(Tile tile, float u, float v) {
+    constexpr float inset = 0.5F / static_cast<float>(kFallbackTileSize);
+    const int index = static_cast<int>(tile);
+    const float column = static_cast<float>(index % kAtlasColumns);
+    const float row = static_cast<float>(index / kAtlasColumns);
+    const float localU = std::lerp(inset, 1.0F - inset, std::clamp(u, 0.0F, 1.0F));
+    const float localV = std::lerp(inset, 1.0F - inset, std::clamp(v, 0.0F, 1.0F));
+    return {(column + localU) / kAtlasColumns, (row + localV) / kAtlasRows};
+}
+
+[[nodiscard]] std::array<std::uint8_t, 3> faceColor(
+    const Normal& normal,
+    mcworld::Block block,
+    Tile tile
+) {
     constexpr Normal light{-0.45F, 0.82F, -0.35F};
     constexpr float lightLength = 0.99869913F;
     const float incidence = (normal.x * light.x + normal.y * light.y + normal.z * light.z) / lightLength;
     const float lighting = 0.42F + 0.58F * std::max(0.0F, incidence);
-    using enum mcworld::Block;
-    std::array<float,3> base{125,125,125};
-    switch(block) {
-        case Air: break;
-        case Stone: base={128,128,128};break;
-        case Water: base={40,105,210};break;
-        case Lava: base={255,95,15};break;
-        case Bedrock: base={45,45,45};break;
-        case Deepslate: base={65,67,72};break;
-        case Grass: base=normal.y>0?std::array<float,3>{95,155,55}:std::array<float,3>{125,94,62};break;
-        case Dirt: base={133,96,67};break;
-        case Sand: case Sandstone: base={220,205,145};break;
-        case RedSand: case RedSandstone: base={195,104,46};break;
-        case Gravel: base={144,136,133};break;
-        case Terracotta: base={157,98,75};break;
-        case OrangeTerracotta: base={164,84,38};break;
-        case WhiteTerracotta: base={210,179,161};break;
-        case YellowTerracotta: base={185,133,36};break;
-        case BrownTerracotta: base={78,51,36};break;
-        case RedTerracotta: base={144,60,46};break;
-        case LightGrayTerracotta: base={135,107,98};break;
-        case Podzol: case CoarseDirt: base={107,79,40};break;
-        case Mycelium: base={124,106,128};break;
-        case Mud: base={65,61,64};break;
-        case Snow: case PowderSnow: base={240,248,250};break;
-        case Ice: case PackedIce: base={140,182,245};break;
-        case Calcite: base={222,220,211};break;
-        case CopperOre: case RawCopper: base={175,117,77};break;
-        case Granite: base={157,109,93};break;
-        case DeepslateIronOre: case RawIron: base={146,126,108};break;
-        case Tuff: base={111,114,102};break;
-        case Sulfur: base={225,202,54};break;
-        case Cinnabar: base={180,52,40};break;
+    std::array<float, 3> tint{255.0F, 255.0F, 255.0F};
+    if (tile == Tile::GrassTop) {
+        tint = {115.0F, 185.0F, 78.0F};
+    } else if (block == mcworld::Block::Water) {
+        tint = {55.0F, 125.0F, 235.0F};
     }
-    const auto [red,green,blue]=base;
+    const auto [red, green, blue] = tint;
     return {
         colorChannel(red * lighting),
         colorChannel(green * lighting),
@@ -184,12 +272,23 @@ private:
     };
 }
 
-void appendColoredFace(VoxelMesh& mesh, const std::array<Position, 4>& corners, const Normal& normal, mcworld::Block block) {
+void appendTexturedFace(
+    VoxelMesh& mesh,
+    const std::array<Position, 4>& corners,
+    const Normal& normal,
+    mcworld::Block block
+) {
     constexpr std::array<int, 6> indices{{0, 1, 2, 0, 2, 3}};
-    const std::array<std::uint8_t, 3> color = faceColor(normal, block);
+    constexpr std::array<std::array<float, 2>, 4> texcoords{{
+        {{0.0F, 1.0F}}, {{0.0F, 0.0F}}, {{1.0F, 0.0F}}, {{1.0F, 1.0F}},
+    }};
+    const Tile tile = faceTexture(block, normal);
+    const std::array<std::uint8_t, 3> color = faceColor(normal, block, tile);
 
     for (const int index : indices) {
         const Position& position = corners[static_cast<std::size_t>(index)];
+        const auto& local = texcoords[static_cast<std::size_t>(index)];
+        const auto uv = atlasCoordinates(tile, local[0], local[1]);
         mesh.vertices.push_back({
             position.x,
             position.y,
@@ -197,6 +296,8 @@ void appendColoredFace(VoxelMesh& mesh, const std::array<Position, 4>& corners, 
             normal.x,
             normal.y,
             normal.z,
+            uv[0],
+            uv[1],
             color[0],
             color[1],
             color[2],
@@ -226,11 +327,40 @@ void appendSmoothTriangle(SmoothTerrainMesh& mesh, SmoothSample a, SmoothSample 
 
     if (dot(faceNormal, outward) < 0.0F) {
         std::swap(b, c);
+        faceNormal = cross(b.position - a.position, c.position - a.position);
     }
+
+    mcworld::Block material = a.material;
+    if (b.material == c.material || b.material == a.material) {
+        material = b.material;
+    } else if (c.material == a.material) {
+        material = c.material;
+    }
+    if (fluid != mcworld::Block::Air) {
+        material = fluid;
+    }
+    const Normal faceDirection = normalize({faceNormal.x, faceNormal.y, faceNormal.z});
+    const Tile tile = faceTexture(material, faceDirection);
+    const float ax = std::abs(faceDirection.x);
+    const float ay = std::abs(faceDirection.y);
+    const float az = std::abs(faceDirection.z);
+    const auto projected = [&](const Position& position) {
+        if (ay >= ax && ay >= az) return std::array{position.x, position.z};
+        if (ax >= az) return std::array{position.z, position.y};
+        return std::array{position.x, position.y};
+    };
+    const auto pa = projected(a.position);
+    const auto pb = projected(b.position);
+    const auto pc = projected(c.position);
+    const float baseU = std::floor(std::min({pa[0], pb[0], pc[0]}));
+    const float baseV = std::floor(std::min({pa[1], pb[1], pc[1]}));
 
     for (const SmoothSample& sample : {a, b, c}) {
         const Normal normal = normalize(sample.gradient * -1.0F);
-        const auto color = faceColor(normal, fluid == mcworld::Block::Air ? sample.material : fluid);
+        const auto local = projected(sample.position);
+        const auto uv = atlasCoordinates(tile, local[0] - baseU, local[1] - baseV);
+        const mcworld::Block vertexMaterial = fluid == mcworld::Block::Air ? sample.material : fluid;
+        const auto color = faceColor(normal, vertexMaterial, faceTexture(vertexMaterial, normal));
         mesh.vertices.push_back({
             sample.position.x,
             sample.position.y,
@@ -238,6 +368,8 @@ void appendSmoothTriangle(SmoothTerrainMesh& mesh, SmoothSample a, SmoothSample 
             normal.x,
             normal.y,
             normal.z,
+            uv[0],
+            uv[1],
             color[0],
             color[1],
             color[2],
@@ -309,7 +441,7 @@ constexpr std::array<std::array<int, 4>, 6> kTetrahedra{{
 
 void appendExposedFaces(VoxelMesh& mesh, const Occupancy& occupancy, int x, int y, int z) {
     auto appendFace=[&](VoxelMesh& output,const std::array<Position,4>& corners,const Normal& normal) {
-        appendColoredFace(output,corners,normal,occupancy.at(x,y,z));
+        appendTexturedFace(output,corners,normal,occupancy.at(x,y,z));
     };
     const float x0 = static_cast<float>(x);
     const float x1 = x0 + 1.0F;
@@ -337,6 +469,125 @@ void appendExposedFaces(VoxelMesh& mesh, const Occupancy& occupancy, int x, int 
         appendFace(mesh, {{{x0, y0, z0}, {x0, y1, z0}, {x1, y1, z0}, {x1, y0, z0}}}, {0, 0, -1});
     }
 }
+
+[[nodiscard]] Color fallbackColor(Tile tile) {
+    switch (tile) {
+    case Tile::Bedrock: return {50, 50, 50, 255};
+    case Tile::Calcite: return {220, 218, 208, 255};
+    case Tile::Cinnabar: return {184, 50, 40, 255};
+    case Tile::CoarseDirt: return {108, 78, 43, 255};
+    case Tile::CopperOre: return {145, 112, 91, 255};
+    case Tile::Deepslate: case Tile::DeepslateTop: return {67, 68, 72, 255};
+    case Tile::DeepslateIronOre: return {105, 97, 91, 255};
+    case Tile::Dirt: return {133, 96, 67, 255};
+    case Tile::Granite: return {157, 109, 93, 255};
+    case Tile::GrassSide: return {120, 104, 65, 255};
+    case Tile::GrassTop: return {210, 210, 210, 255};
+    case Tile::Gravel: return {144, 136, 133, 255};
+    case Tile::Ice: return {150, 190, 245, 255};
+    case Tile::Lava: return {255, 102, 18, 255};
+    case Tile::LightGrayTerracotta: return {135, 107, 98, 255};
+    case Tile::Mud: return {65, 61, 64, 255};
+    case Tile::MyceliumSide: return {111, 88, 70, 255};
+    case Tile::MyceliumTop: return {124, 106, 128, 255};
+    case Tile::OrangeTerracotta: return {164, 84, 38, 255};
+    case Tile::PackedIce: return {132, 171, 224, 255};
+    case Tile::PodzolSide: return {111, 82, 52, 255};
+    case Tile::PodzolTop: return {107, 79, 40, 255};
+    case Tile::PowderSnow: case Tile::Snow: return {240, 248, 250, 255};
+    case Tile::RawCopper: return {157, 91, 65, 255};
+    case Tile::RawIron: return {146, 126, 108, 255};
+    case Tile::RedSand: return {190, 102, 42, 255};
+    case Tile::RedSandstoneSide: case Tile::RedSandstoneBottom: case Tile::RedSandstoneTop:
+        return {184, 98, 43, 255};
+    case Tile::RedTerracotta: return {144, 60, 46, 255};
+    case Tile::Sand: return {220, 205, 145, 255};
+    case Tile::SandstoneSide: case Tile::SandstoneBottom: case Tile::SandstoneTop:
+        return {216, 202, 151, 255};
+    case Tile::Stone: return {128, 128, 128, 255};
+    case Tile::Sulfur: return {225, 202, 54, 255};
+    case Tile::Terracotta: return {157, 98, 75, 255};
+    case Tile::Tuff: return {111, 114, 102, 255};
+    case Tile::Water: return {205, 205, 205, 255};
+    case Tile::WhiteTerracotta: return {210, 179, 161, 255};
+    case Tile::YellowTerracotta: return {185, 133, 36, 255};
+    case Tile::BrownTerracotta: return {78, 51, 36, 255};
+    case Tile::Count: break;
+    }
+    return MAGENTA;
+}
+
+[[nodiscard]] Image makeFallbackAtlas() {
+    Image atlas = GenImageColor(kFallbackTileSize * kAtlasColumns, kFallbackTileSize * kAtlasRows, BLANK);
+    for (int tile = 0; tile < kAtlasTiles; ++tile) {
+        const Color base = fallbackColor(static_cast<Tile>(tile));
+        for (int y = 0; y < kFallbackTileSize; ++y) {
+            for (int x = 0; x < kFallbackTileSize; ++x) {
+                const std::uint32_t hash = static_cast<std::uint32_t>(x * 73856093U)
+                    ^ static_cast<std::uint32_t>(y * 19349663U)
+                    ^ static_cast<std::uint32_t>(tile * 83492791U);
+                const float variation = 0.88F + static_cast<float>(hash & 15U) / 100.0F;
+                const Color color{
+                    colorChannel(base.r * variation),
+                    colorChannel(base.g * variation),
+                    colorChannel(base.b * variation),
+                    255,
+                };
+                ImageDrawPixel(
+                    &atlas,
+                    (tile % kAtlasColumns) * kFallbackTileSize + x,
+                    (tile / kAtlasColumns) * kFallbackTileSize + y,
+                    color
+                );
+            }
+        }
+    }
+    return atlas;
+}
+
+#ifdef MCWORLD_FAITHFUL_TEXTURE_DIR
+[[nodiscard]] Image loadFaithfulAtlas() {
+    constexpr std::array<const char*, kAtlasTiles> names{{
+        "bedrock.png", "calcite.png", "cinnabar.png", "coarse_dirt.png", "copper_ore.png",
+        "deepslate.png", "deepslate_iron_ore.png", "deepslate_top.png", "dirt.png", "granite.png",
+        "grass_block_side.png", "grass_block_top.png", "gravel.png", "ice.png", "lava_still.png",
+        "light_gray_terracotta.png", "mud.png", "mycelium_side.png", "mycelium_top.png",
+        "orange_terracotta.png", "packed_ice.png", "podzol_side.png", "podzol_top.png",
+        "powder_snow.png", "raw_copper_block.png", "raw_iron_block.png", "red_sand.png",
+        "red_sandstone.png", "red_sandstone_bottom.png", "red_sandstone_top.png", "red_terracotta.png",
+        "sand.png", "sandstone.png", "sandstone_bottom.png", "sandstone_top.png", "snow.png",
+        "stone.png", "sulfur.png", "terracotta.png", "tuff.png", "water_still.png",
+        "white_terracotta.png", "yellow_terracotta.png", "brown_terracotta.png",
+    }};
+    std::array<Image, kAtlasTiles> tiles{};
+    for (std::size_t i = 0; i < tiles.size(); ++i) {
+        const std::string path = std::string(MCWORLD_FAITHFUL_TEXTURE_DIR) + '/' + names[i];
+        tiles[i] = LoadImage(path.c_str());
+        if (!IsImageValid(tiles[i]) || tiles[i].width != kFallbackTileSize
+            || tiles[i].height < kFallbackTileSize) {
+            for (Image& tile : tiles) {
+                if (IsImageValid(tile)) UnloadImage(tile);
+            }
+            std::cerr << "Could not load the Faithful 32x terrain textures; using generated fallbacks.\n";
+            return {};
+        }
+    }
+
+    Image atlas = GenImageColor(kFallbackTileSize * kAtlasColumns, kFallbackTileSize * kAtlasRows, BLANK);
+    for (std::size_t i = 0; i < tiles.size(); ++i) {
+        const Rectangle source{0.0F, 0.0F, kFallbackTileSize, kFallbackTileSize};
+        const Rectangle destination{
+            static_cast<float>(static_cast<int>(i) % kAtlasColumns * kFallbackTileSize),
+            static_cast<float>(static_cast<int>(i) / kAtlasColumns * kFallbackTileSize),
+            kFallbackTileSize,
+            kFallbackTileSize,
+        };
+        ImageDraw(&atlas, tiles[i], source, destination, WHITE);
+        UnloadImage(tiles[i]);
+    }
+    return atlas;
+}
+#endif
 
 } // namespace
 
@@ -499,10 +750,12 @@ Mesh uploadTerrainMesh(const TerrainMesh& terrain) {
     mesh.triangleCount = static_cast<int>(terrain.triangleCount());
     mesh.vertices = static_cast<float*>(MemAlloc(terrain.vertices.size() * 3 * sizeof(float)));
     mesh.normals = static_cast<float*>(MemAlloc(terrain.vertices.size() * 3 * sizeof(float)));
+    mesh.texcoords = static_cast<float*>(MemAlloc(terrain.vertices.size() * 2 * sizeof(float)));
     mesh.colors = static_cast<unsigned char*>(MemAlloc(terrain.vertices.size() * 4 * sizeof(unsigned char)));
-    if (!mesh.vertices || !mesh.normals || !mesh.colors) {
+    if (!mesh.vertices || !mesh.normals || !mesh.texcoords || !mesh.colors) {
         MemFree(mesh.vertices);
         MemFree(mesh.normals);
+        MemFree(mesh.texcoords);
         MemFree(mesh.colors);
         throw std::runtime_error("Could not allocate viewer terrain mesh buffers");
     }
@@ -515,6 +768,8 @@ Mesh uploadTerrainMesh(const TerrainMesh& terrain) {
         mesh.normals[i * 3] = vertex.nx;
         mesh.normals[i * 3 + 1] = vertex.ny;
         mesh.normals[i * 3 + 2] = vertex.nz;
+        mesh.texcoords[i * 2] = vertex.u;
+        mesh.texcoords[i * 2 + 1] = vertex.v;
         mesh.colors[i * 4] = vertex.red;
         mesh.colors[i * 4 + 1] = vertex.green;
         mesh.colors[i * 4 + 2] = vertex.blue;
@@ -533,6 +788,26 @@ Mesh uploadSmoothTerrainMesh(const SmoothTerrainMesh& terrain) {
 
 Mesh uploadVoxelMesh(const VoxelMesh& voxels) {
     return uploadTerrainMesh(voxels);
+}
+
+TerrainTextureAtlas loadTerrainTextureAtlas() {
+    Image atlas{};
+    bool faithful = false;
+#ifdef MCWORLD_FAITHFUL_TEXTURE_DIR
+    atlas = loadFaithfulAtlas();
+    faithful = IsImageValid(atlas);
+#endif
+    if (!IsImageValid(atlas)) {
+        atlas = makeFallbackAtlas();
+    }
+    Texture2D texture = LoadTextureFromImage(atlas);
+    UnloadImage(atlas);
+    if (!IsTextureValid(texture)) {
+        throw std::runtime_error("Could not upload the terrain texture atlas");
+    }
+    SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+    SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
+    return {texture, faithful};
 }
 
 } // namespace viewer

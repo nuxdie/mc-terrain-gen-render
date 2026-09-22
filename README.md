@@ -16,7 +16,8 @@ in Minecraft.
 
 ## Build
 
-CMake downloads the pinned Raylib 5.5 source when the viewer is enabled.
+CMake downloads the pinned Raylib 5.5 source and the hash-pinned Faithful 32x
+26.3 resource pack when the viewer is enabled.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -72,10 +73,27 @@ The reconstruction rounds rasterized carve boundaries rather than pinning every
 crossing to a block edge; one-block details can be rounded off. Crossings use the
 generated solid material. Separate water/lava surfaces preserve submerged ocean
 floors and cave walls; the voxel view emits block faces. Generated neighboring chunks provide
-consistent mesh samples and suppress internal voxel boundary faces. Fluids are
-rendered as opaque colored material; lighting is presentation-only. Headless
+consistent mesh samples and suppress internal voxel boundary faces. Both views
+map the generated block material to Faithful textures; the smooth mesh uses
+per-block planar projection over its curved triangles. Fluids are rendered as
+opaque textured material; lighting is presentation-only. Headless
 output reports `mesh_triangles` and, with `--voxel`, `solid_blocks`,
 `water_blocks`, `lava_blocks`, and `voxel_faces`.
+
+### Faithful 32x textures
+
+Viewer builds download the Faithful 32x September 2026 release for Minecraft
+26.3 from its [official Modrinth listing](https://modrinth.com/resourcepack/faithful-32x).
+The archive is SHA-512 verified, stored under the build directory, and only the
+44 block texture files used by the stage 7B terrain palette are extracted. It is
+not committed to this repository. Configure with
+`-DMCWORLD_FETCH_FAITHFUL_TEXTURES=OFF` to use generated fallback textures and
+avoid this download after Raylib is available.
+
+Textures are from **Faithful 32x** by the Faithful Resource Pack project:
+[faithfulpack.net](https://faithfulpack.net). They are used under the
+[Faithful License](https://faithfulpack.net/license). Faithful is not affiliated
+with or endorsed by this project.
 
 Generation includes:
 

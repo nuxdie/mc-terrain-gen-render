@@ -163,7 +163,8 @@ void drawOverlay(
     double surfaceSeconds,
     double voxelSeconds,
     bool voxelMode,
-    bool wireframe
+    bool wireframe,
+    bool faithfulTextures
 ) {
     DrawRectangle(18, 18, 780, 140, {5, 9, 15, 205});
     DrawText(
@@ -184,8 +185,12 @@ void drawOverlay(
              32, 84, 18, RAYWHITE);
     DrawText("V: mesh/voxel | F: wireframe | WASD + mouse: fly | Shift: boost | TAB: cursor",
               32, 111, 16, {132, 151, 166, 255});
-    DrawText("Space/Ctrl: up/down | Stage 6 + 7A/7B terrain with generated materials and carvers",
-              32, 134, 14, {117, 148, 139, 255});
+    DrawText(
+        faithfulTextures
+            ? "Space/Ctrl: up/down | Faithful 32x textures | Stage 6 + 7A/7B terrain"
+            : "Space/Ctrl: up/down | Generated fallback textures | Stage 6 + 7A/7B terrain",
+        32, 134, 14, {117, 148, 139, 255}
+    );
     DrawFPS(GetScreenWidth() - 96, 20);
 }
 
@@ -206,6 +211,9 @@ void runViewer(
 
     Model smoothModel = LoadModelFromMesh(viewer::uploadSmoothTerrainMesh(surface));
     Model voxelModel = LoadModelFromMesh(viewer::uploadVoxelMesh(voxels));
+    const viewer::TerrainTextureAtlas atlas = viewer::loadTerrainTextureAtlas();
+    SetMaterialTexture(&smoothModel.materials[0], MATERIAL_MAP_DIFFUSE, atlas.texture);
+    SetMaterialTexture(&voxelModel.materials[0], MATERIAL_MAP_DIFFUSE, atlas.texture);
     Camera3D camera = framingCamera(surface, options.chunks);
     bool wireframe = false;
     bool voxelMode = options.voxel;
@@ -247,12 +255,15 @@ void runViewer(
         const float high = low + options.chunks * 16.0F;
         DrawBoundingBox({{low, -64.0F, low}, {high, 320.0F, high}}, kChunkBounds);
         EndMode3D();
-        drawOverlay(options, surface, voxels, surfaceSeconds, voxelSeconds, voxelMode, wireframe);
+        drawOverlay(
+            options, surface, voxels, surfaceSeconds, voxelSeconds, voxelMode, wireframe, atlas.faithful
+        );
         EndDrawing();
     }
 
     UnloadModel(voxelModel);
     UnloadModel(smoothModel);
+    UnloadTexture(atlas.texture);
     CloseWindow();
 }
 

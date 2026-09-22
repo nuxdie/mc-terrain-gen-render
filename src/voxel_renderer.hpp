@@ -18,6 +18,8 @@ struct VoxelVertex {
     float nx{};
     float ny{};
     float nz{};
+    float u{};
+    float v{};
     std::uint8_t red{};
     std::uint8_t green{};
     std::uint8_t blue{};
@@ -39,6 +41,11 @@ struct SmoothTerrainMesh {
     [[nodiscard]] std::size_t triangleCount() const noexcept { return vertices.size() / 3; }
 };
 
+struct TerrainTextureAtlas {
+    Texture2D texture{};
+    bool faithful{};
+};
+
 // Reuses generated chunks, including the border needed for neighbor visibility.
 class VoxelTerrain {
 public:
@@ -58,5 +65,6 @@ private:
 // Requires an initialized Raylib window/OpenGL context.
 [[nodiscard]] Mesh uploadSmoothTerrainMesh(const SmoothTerrainMesh& terrain);
 [[nodiscard]] Mesh uploadVoxelMesh(const VoxelMesh& voxels);
+[[nodiscard]] TerrainTextureAtlas loadTerrainTextureAtlas();
 
 } // namespace viewer
