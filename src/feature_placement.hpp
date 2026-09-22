@@ -20,6 +20,8 @@ public:
     virtual Biome biomeAt(int x, int y, int z) const = 0;
     virtual int height(FeatureHeightmap type, int x, int z) const = 0;
     virtual bool canWrite(BlockPosition pos) const = 0;
+    virtual void setData(int, int, int, std::shared_ptr<const BlockData>) {}
+    virtual const BlockData* dataAt(int, int, int) const { return nullptr; }
 };
 
 struct FeatureContext {
@@ -78,5 +80,9 @@ struct OreTarget {
 [[nodiscard]] ConfiguredFeature sequenceFeature(std::vector<PlacedFeature> children);
 [[nodiscard]] ConfiguredFeature randomSelectorFeature(std::vector<std::pair<float, PlacedFeature>> children,
                                                      PlacedFeature fallback);
+enum class TreeShape { Oak, Birch, Spruce, Pine };
+[[nodiscard]] ConfiguredFeature straightTreeFeature(TreeShape shape);
+[[nodiscard]] ConfiguredFeature blockPileFeature(std::string name);
+[[nodiscard]] bool placePoolFeature(std::string_view name, FeatureContext& context, BlockPosition origin);
 
 } // namespace mcworld::detail

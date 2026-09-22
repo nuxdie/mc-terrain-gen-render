@@ -357,13 +357,11 @@ const std::vector<StructureStart>& StructureIndex::starts(ChunkPosition chunk) c
                     start.adjustment = definition.adjustment;
                     start.step = definition.step;
                     auto random = largeFeatureRandom(router_->seed(), chunk.x, chunk.z);
+                    BlockPosition generationPoint;
                     start.pieces = assembleJigsaw(*templates_, variant, {chunkMinBlock(chunk.x), y, chunkMinBlock(chunk.z)},
-                        random, [&](int x, int z) { return surfaceY(*router_, x, z); });
+                        random, [&](int x, int z) { return surfaceY(*router_, x, z); }, &generationPoint);
                     if (!start.valid()) return false;
-                    const auto& root = start.pieces.front();
-                    const int x = root.bounds.minX + (root.bounds.maxX - root.bounds.minX) / 2;
-                    const int z = root.bounds.minZ + (root.bounds.maxZ - root.bounds.minZ) / 2;
-                    if (!variantBiome(variant, biomes_->sample(*router_, x, root.bounds.minY + root.groundLevelDelta, z))) return false;
+                    if (!variantBiome(variant, biomes_->sample(*router_, generationPoint.x, generationPoint.y, generationPoint.z))) return false;
                 } else {
                     start = makeStart(definition, *router_, chunk);
                 }

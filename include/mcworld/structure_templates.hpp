@@ -4,6 +4,7 @@
 
 #include <map>
 #include <string>
+#include <filesystem>
 
 namespace mcworld {
 
@@ -25,6 +26,7 @@ struct StructureTemplate {
     std::vector<StructureBlock> blocks; // template-local positions
     std::vector<TemplateConnector> connectors;
     int groundLevelDelta{1};
+    std::string feature; // feature-pool element instead of block template
 };
 
 struct TemplatePoolElement {
@@ -45,6 +47,8 @@ struct TemplateStartPool {
     int maxDistance{80};
     int startY{};
     bool projectToSurface{true};
+    bool expansionHack{};
+    std::string startJigsawName{};
 };
 
 // Catalog data is supplied by the caller; no Minecraft template assets are
@@ -54,7 +58,14 @@ struct StructureTemplateCatalog {
     std::map<std::string, StructureTemplate> templates;
     std::map<std::string, StructureTemplatePool> pools;
     std::map<StructureVariant, TemplateStartPool> starts;
+    std::string sourceVersion;
+    std::vector<std::string> unsupported;
     void validate() const;
 };
+
+// Reads the dependency-free binary catalog produced from a game JAR/resource
+// directory by tools/import_worldgen.py. Throws on malformed/truncated data.
+[[nodiscard]] std::shared_ptr<const StructureTemplateCatalog> loadStructureTemplateCatalog(const std::filesystem::path& path);
+[[nodiscard]] Block templateMaterial(std::string_view state);
 
 } // namespace mcworld

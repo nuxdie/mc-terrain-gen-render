@@ -17,6 +17,60 @@ part of the committed deliverable. The earlier biome/terrain audit remains in
 
 ## Implemented after the initial audit
 
+### Asset-backed follow-up
+
+The cached merged 26.3 game JAR contains the resources absent from the Java
+source checkout. `tools/import_worldgen.py` now reads both gzip/raw NBT and
+worldgen JSON from a local game JAR or extracted resource directory. The tested
+JAR imports **552 templates, 68 pools, and six start definitions** (the five
+village variants plus ancient cities). Generated game data is ignored by Git.
+
+The importer follows connector/fallback pool dependencies, expands block tags
+for supported rule/rot processors, supports the game's lower-case `id` and
+`properties` state format, retains block-entity compounds as JSON, and records
+unsupported semantics rather than claiming to execute them. Missing resources
+referenced by game data retain the empty/no-connector behavior of template lookup.
+List elements with identical processors are combined, preserving first-element
+connectors and ordered blocks; more general list elements remain unsupported.
+
+`loadStructureTemplateCatalog()` validates the binary stream and catalog, including
+lengths, indices, duplicate IDs, and source version. `MCWORLD_GAME_JAR` integrates
+conversion with CMake and selects the output as the viewer's default catalog.
+`--templates FILE` selects a catalog explicitly. With no catalog configured, the
+old procedural structure fallback remains.
+
+Pool assembly now handles named start anchors, ground-level start placement,
+source-centered horizontal/vertical bounds, expansion-hack reservation, and
+feature-element wildcard connectors. Imported block states rotate with their
+pieces, including facing, log axes, rotation segments, and directional connections.
+Chunks retain state/property and block-entity payloads; replacing a block removes
+stale data. Template rule lists use first-match groups and exact input names.
+
+Oak, birch, spruce, and pine now use straight trunks, full canopy clearance,
+and their blob/spruce/pine foliage algorithms. Generated logs/leaves retain species,
+axis, and leaf-distance properties. Village hay/ice/pumpkin/melon/snow piles use
+the source footprint and state selection; supported feature-pool elements execute
+inside structure placement with its random stream.
+
+The real-asset integration fixture at seed 12345 and chunk (21, 5), with a fixed
+plains biome, assembles 169 pieces and 4,349 imported state records. Synthetic
+gzip/raw NBT and binary round-trip tests cover palettes, properties, signed long
+block-entity values, malformed/truncated inputs, and catalog-to-library loading.
+With the default biome source, seed 12345 at chunk (-58, -53) produces an
+asset-backed village of 122 pieces. The Release viewer successfully generated
+and meshed that location in headless voxel mode using the imported catalog.
+
+Verification for this follow-up: all 5 asset-enabled headless tests, all 10
+viewer-enabled tests, and the generation/importer tests under ASan/UBSan passed.
+The real imported catalog also loaded and assembled successfully under the
+sanitizers. Standalone density and terrain expectations were not changed.
+
+Still unsupported: several feature-pool algorithms (including acacia and sculk),
+template entities, some processor predicates/modifiers, all non-imported structure
+families, and full state-specific rendering/behavior. Material fallbacks do not
+make stairs, fences, crops, or other partial blocks behave or render like their
+full Minecraft models. Terrain matching still uses preliminary surface sampling.
+
 ### Structures
 
 - Weighted selection without replacement, retrying failed variants with the
@@ -36,13 +90,11 @@ part of the committed deliverable. The earlier biome/terrain audit remains in
   pool boxes, and adds eligible junctions at Java's `0.4F` weight. Non-pool pieces
   use ground delta zero. Junction boundary tests use strict source inequalities.
 
-The catalog API accepts decoded material-level data, **not NBT files**. The local
-source checkout contains Java code but no structure NBT resource tree. No vanilla
-template assets or complete pool catalog have been added. Without a configured
-catalog, structure geometry remains the prior procedural approximation. The
-template engine does not yet implement pool aliases, expansion hacks, liquid
-settings, all processors, multiple palettes, block-state rotation, template
-entities, structure-specific `afterPlace`, or the complete jigsaw start options.
+The C++ catalog API accepts decoded data; the Python importer supplies the NBT/JSON
+loading step. Without a configured catalog, structure geometry remains the prior
+procedural approximation. The template engine does not yet implement pool aliases,
+liquid settings, all processors, multiple palettes, every block-state rotation
+rule, template entities, structure-specific `afterPlace`, or every jigsaw start option.
 Terrain-matching blocks use the supplied preliminary surface-height sampler,
 rather than vanilla's final terrain heightmap. These are remaining stage-5/8
 gaps, not a claim that the template engine is fully vanilla-compatible.
@@ -68,7 +120,7 @@ gaps, not a claim that the template engine is fully vanilla-compatible.
 
 The per-biome catalog still includes only supported entries; it is not the full
 vanilla biome-generation registry, so global feature indices and therefore
-seeds still differ. Tree shapes, detailed snow/block states, biome disk/tree
+seeds still differ. Remaining tree species, detailed snow/block behavior, biome disk/tree
 membership, many feature types (vegetation, lakes, dungeons, cave decoration,
 etc.), and generation side effects are still incomplete. New ore materials use
 fallback atlas tiles in the viewer until their textures are added.

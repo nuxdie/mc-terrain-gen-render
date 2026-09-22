@@ -55,7 +55,20 @@ Block TerrainChunk::at(int x, int y, int z) const {
 }
 
 void TerrainChunk::set(int x, int y, int z, Block block) {
-    blocks.at(index(x, y, z)) = block;
+    const auto i = index(x, y, z);
+    blocks.at(i) = block;
+    if (!blockData.empty()) blockData.erase(i);
+}
+
+void TerrainChunk::setData(int x, int y, int z, std::shared_ptr<const BlockData> data) {
+    const auto i = index(x, y, z);
+    if (data) blockData[i] = std::move(data);
+    else blockData.erase(i);
+}
+
+const BlockData* TerrainChunk::dataAt(int x, int y, int z) const {
+    const auto it = blockData.find(index(x, y, z));
+    return it == blockData.end() ? nullptr : it->second.get();
 }
 
 Biome TerrainChunk::biomeAt(int x, int y, int z) const {

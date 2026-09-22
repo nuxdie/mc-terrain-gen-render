@@ -159,9 +159,10 @@ private:
                                          const std::function<bool(std::size_t)>& generate);
 [[nodiscard]] std::vector<StructurePiece> assembleJigsaw(
     const StructureTemplateCatalog& catalog, StructureVariant variant, BlockPosition origin,
-    LegacyRandom& random, const std::function<int(int, int)>& surfaceHeight);
+    LegacyRandom& random, const std::function<int(int, int)>& surfaceHeight, BlockPosition* generationPoint = nullptr);
 [[nodiscard]] std::optional<Block> processStructureBlock(
-    const StructureBlock& block, Block existing, const std::vector<TemplateProcessor>& processors);
+    const StructureBlock& block, Block existing, const std::vector<TemplateProcessor>& processors,
+    std::shared_ptr<const BlockData>* outputData = nullptr);
 
 // --- Stage 8: features -----------------------------------------------------
 

@@ -4,6 +4,7 @@ project(mc_terrain_gen_render VERSION 0.1.0 LANGUAGES CXX)
 
 option(MCWORLD_BUILD_VIEWER "Build the interactive Raylib viewer" ON)
 option(MCWORLD_BUILD_TESTS "Build unit tests" ON)
+set(MCWORLD_GAME_JAR "" CACHE FILEPATH "Local Minecraft 26.3 game JAR to import structure resources from")
 option(MCWORLD_FETCH_FAITHFUL_TEXTURES "Download Faithful 32x textures for the viewer" ON)
 
 add_library(mcworld
@@ -20,9 +21,11 @@ add_library(mcworld
     src/generation.cpp
     src/structures.cpp
     src/structure_templates.cpp
+    src/template_catalog.cpp
     src/decoration.cpp
     src/feature_placement.cpp
     src/features.cpp
+    src/vegetation.cpp
 )
 add_library(mcworld::mcworld ALIAS mcworld)
 
@@ -31,6 +34,17 @@ target_include_directories(mcworld PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 target_include_directories(mcworld PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+if(MCWORLD_GAME_JAR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(MCWORLD_TEMPLATE_CATALOG "${CMAKE_CURRENT_BINARY_DIR}/structures.mcwc")
+    add_custom_command(OUTPUT "${MCWORLD_TEMPLATE_CATALOG}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/import_worldgen.py"
+                "${MCWORLD_GAME_JAR}" "${MCWORLD_TEMPLATE_CATALOG}"
+        DEPENDS "${MCWORLD_GAME_JAR}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/import_worldgen.py"
+        VERBATIM)
+    add_custom_target(mcworld_template_assets ALL DEPENDS "${MCWORLD_TEMPLATE_CATALOG}")
+endif()
 
 if(MSVC)
     target_compile_options(mcworld PRIVATE /W4 /permissive-)
@@ -52,6 +66,10 @@ if(MCWORLD_BUILD_VIEWER)
     add_executable(terrain_viewer src/main.cpp src/voxel_renderer.cpp)
     target_compile_features(terrain_viewer PRIVATE cxx_std_20)
     target_link_libraries(terrain_viewer PRIVATE mcworld::mcworld raylib)
+    if(MCWORLD_GAME_JAR)
+        add_dependencies(terrain_viewer mcworld_template_assets)
+        target_compile_definitions(terrain_viewer PRIVATE MCWORLD_DEFAULT_TEMPLATE_CATALOG="${MCWORLD_TEMPLATE_CATALOG}")
+    endif()
 
     if(MCWORLD_FETCH_FAITHFUL_TEXTURES)
         set(FAITHFUL_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/_faithful-32x/Faithful-32x-26.3.zip")
@@ -117,6 +135,14 @@ if(MCWORLD_BUILD_TESTS)
     target_link_libraries(generation_tests PRIVATE mcworld::mcworld)
     target_include_directories(generation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME generation_tests COMMAND generation_tests)
+    if(MCWORLD_GAME_JAR)
+        add_dependencies(generation_tests mcworld_template_assets)
+        add_test(NAME imported_structure_tests COMMAND generation_tests --catalog "${MCWORLD_TEMPLATE_CATALOG}")
+    endif()
+    find_package(Python3 QUIET COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME template_importer_tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/template_importer_tests.py" "$<TARGET_FILE:generation_tests>")
+    endif()
     if(MCWORLD_BUILD_VIEWER)
         add_executable(viewer_mesh_tests tests/viewer_mesh_tests.cpp src/voxel_renderer.cpp)
         target_compile_features(viewer_mesh_tests PRIVATE cxx_std_20)

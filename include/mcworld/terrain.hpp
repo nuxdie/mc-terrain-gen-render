@@ -8,6 +8,8 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <map>
+#include <string>
 #include <vector>
 
 namespace mcworld {
@@ -74,6 +76,14 @@ struct BlockPosition {
     bool operator==(const BlockPosition&) const = default;
 };
 
+// Exact imported state and block-entity payload. The Block enum remains the
+// material used by terrain algorithms; imported properties are retained here.
+struct BlockData {
+    std::string state;
+    std::string blockEntity; // canonical JSON representation of the NBT compound
+    bool operator==(const BlockData&) const = default;
+};
+
 // One generated chunk.
 //
 // Coordinates are chunk-local in X and Z (0..15) and world Y, which is the
@@ -106,9 +116,12 @@ struct TerrainChunk {
     // Positions queued for fluid post-processing, in local X/Z and world Y.
     // Queued, not simulated: the caller decides what to do with them.
     std::vector<BlockPosition> fluidPostProcessing;
+    std::map<std::size_t, std::shared_ptr<const BlockData>> blockData;
 
     [[nodiscard]] Block at(int x, int y, int z) const;
     void set(int x, int y, int z, Block block);
+    void setData(int x, int y, int z, std::shared_ptr<const BlockData> data);
+    [[nodiscard]] const BlockData* dataAt(int x, int y, int z) const;
     [[nodiscard]] Biome biomeAt(int x, int y, int z) const;
 
     // Recomputes every heightmap from the current blocks.

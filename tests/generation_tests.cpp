@@ -139,9 +139,9 @@ void testStructureMetadata() {
     }
     mcworld::detail::StructureIndex templateIndex(router, *options.terrain.biomes, true, catalog.get());
     mcworld::detail::decorateChunk(region, templateIndex, villageSource);
-    check(region.at(villageSource).at(0, 120, 0) == mcworld::Block::Bricks,
+    check(region.at(villageSource).at(0, 119, 0) == mcworld::Block::Bricks,
           "stage 8 resolves selected template metadata and places explicit blocks");
-    check(region.at(villageSource).worldSurface[0] >= 121, "template writes update live feature heightmaps");
+    check(region.at(villageSource).worldSurface[0] >= 120, "template writes update live feature heightmaps");
 
     options.structures = false;
     mcworld::OverworldWorldGenerator disabled(router, options);
@@ -389,7 +389,7 @@ void testWeightedStructuresAndJigsaws() {
     if (pieces.size() == 2) {
         check(pieces[0].templatePiece && pieces[1].templatePiece && pieces[0].junctions.size() == 1 && pieces[1].junctions.size() == 1,
               "pool attachment stores template blocks and reciprocal junctions");
-        check(pieces[0].junctions[0].sourceGroundY == 51 && pieces[1].junctions[0].sourceGroundY == 51,
+        check(pieces[0].junctions[0].sourceGroundY == 50 && pieces[1].junctions[0].sourceGroundY == 50,
               "jigsaw ground deltas feed both junction heights");
     }
     catalog.starts[StructureVariant::VillagePlains].maxDepth = 0;
@@ -438,9 +438,84 @@ void testJunctionDensityAndProcessors() {
     check(!biomeHasPrecipitation(Biome::Desert), "dry biomes do not receive surface snow");
 }
 
+void testImportedCatalog(const char* path, bool fixture) {
+    using namespace mcworld;
+    using namespace mcworld::detail;
+    const auto catalog = loadStructureTemplateCatalog(path);
+    check(catalog->sourceVersion == "26.3", "imported catalog retains source version");
+    if (fixture) {
+        check(catalog->templates.size() == 1 && catalog->pools.size() == 1, "binary asset importer roundtrip retains definitions");
+        const auto& block = catalog->templates.at("minecraft:test/house").blocks.at(0);
+        check(block.data && block.data->state == "minecraft:oak_stairs[facing=north,half=bottom]", "NBT palette properties survive import");
+        check(block.data && block.data->blockEntity.find("-912345678901") != std::string::npos, "block entity and signed long survive import");
+        LegacyRandom random(42), repeated(42);
+        BlockPosition generationPoint;
+        auto pieces = assembleJigsaw(*catalog, StructureVariant::VillagePlains, {}, random, [](int, int) { return 64; }, &generationPoint);
+        check(pieces.size() == 1 && pieces[0].bounds.minY == 79 && generationPoint.y == 80, "start Y measures ground level, not template bottom");
+        check(pieces == assembleJigsaw(*catalog, StructureVariant::VillagePlains, {}, repeated, [](int, int) { return 64; }), "rotated state equality compares data, not pointer identity");
+        const auto& placed = pieces[0].blocks[0];
+        TerrainChunk chunk;
+        chunk.set(1, 80, 1, placed.block); chunk.setData(1, 80, 1, placed.data);
+        check(chunk.dataAt(1, 80, 1) != nullptr, "chunk stores imported state metadata");
+        chunk.set(1, 80, 1, Block::Air);
+        check(chunk.dataAt(1, 80, 1) == nullptr, "later block writes remove stale block entities and properties");
+    } else {
+        check(catalog->templates.size() > 500 && catalog->starts.size() == 6, "real resource import includes village and ancient-city closures");
+        OverworldNoiseRouter router(12345);
+        GenerationOptions options;
+        options.templates = catalog;
+        options.terrain.biomes = std::make_shared<FixedBiome>(Biome::Plains);
+        OverworldWorldGenerator generator(router, options);
+        auto random = largeFeatureWithSaltRandom(12345, 0, 0, 10387312);
+        const int x = random.nextInt(26), z = random.nextInt(26);
+        const auto starts = generator.structureStarts(x, z);
+        const auto village = std::ranges::find_if(starts, [](const auto& start) { return start.kind == StructureKind::Village; });
+        check(village != starts.end() && village->pieces.size() > 3, "real village templates assemble beyond procedural placeholder boxes");
+        if (village != starts.end()) {
+            std::size_t states = 0, junctions = 0;
+            for (const auto& p : village->pieces) { junctions += p.junctions.size(); for (const auto& b : p.blocks) states += b.data != nullptr; }
+            check(states > 100 && junctions > 0, "real pool assembly retains state palettes and reciprocal junctions");
+            std::cout << "Imported village at " << x << ',' << z << ": " << village->pieces.size() << " pieces, " << states << " states\n";
+        }
+    }
+}
+
+void testTreesAndPiles() {
+    using namespace mcworld;
+    using namespace mcworld::detail;
+    std::array<std::size_t, 4> counts{};
+    int index = 0;
+    for (auto shape : {TreeShape::Oak, TreeShape::Birch, TreeShape::Spruce, TreeShape::Pine}) {
+        TestFeatureWorld world; world.ceiling = 0; world.set(0, -1, 0, Block::Grass);
+        WorldgenRandom random(12); FeatureContext context{world, random, {}};
+        check(straightTreeFeature(shape)(context, {0, 0, 0}), "source straight-trunk/foliage variant places on valid soil");
+        counts[index++] = world.edits.size();
+        check(world.at(0, 0, 0) == Block::OakLog && world.at(0, -1, 0) == Block::Dirt, "tree builds trunk and prepares soil");
+    }
+    check(counts[0] != counts[2] && counts[2] != counts[3], "oak, spruce and pine use different source foliage geometry");
+    TestFeatureWorld blocked; blocked.ceiling = 0;
+    blocked.set(0, -1, 0, Block::Dirt); blocked.set(1, 2, 0, Block::Stone);
+    const auto before = blocked.edits;
+    WorldgenRandom random(1); FeatureContext context{blocked, random, {}};
+    check(!straightTreeFeature(TreeShape::Oak)(context, {0, 0, 0}) && blocked.edits == before,
+          "tree checks canopy clearance before any writes");
+    TestFeatureWorld pile; pile.ceiling = 0;
+    FeatureContext pileContext{pile, random, {}};
+    check(blockPileFeature("pile_ice")(pileContext, {0, 0, 0}) && !pile.edits.empty(), "village block-pile feature executes");
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 3) {
+        if (std::string_view(argv[1]) == "--bad-catalog") {
+            try { (void)mcworld::loadStructureTemplateCatalog(argv[2]); }
+            catch (const std::exception&) { return 0; }
+            return 1;
+        }
+        testImportedCatalog(argv[2], std::string_view(argv[1]) == "--catalog-fixture");
+        return failures ? 1 : 0;
+    }
     testStructureMetadata();
     testSpringRules();
     testBeardKernel();
@@ -451,6 +526,7 @@ int main() {
     testOreReferenceMasks();
     testWeightedStructuresAndJigsaws();
     testJunctionDensityAndProcessors();
+    testTreesAndPiles();
     if (failures) std::cerr << failures << " generation checks failed\n";
     else std::cout << "All generation checks passed\n";
     return failures ? 1 : 0;

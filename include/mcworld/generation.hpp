@@ -67,7 +67,11 @@ struct JigsawJunction {
 struct StructureBlock {
     BlockPosition position; // world coordinates, unlike TerrainChunk block access
     Block block{Block::Air};
-    bool operator==(const StructureBlock&) const = default;
+    std::shared_ptr<const BlockData> data{};
+    bool operator==(const StructureBlock& other) const {
+        return position == other.position && block == other.block
+            && ((!data && !other.data) || (data && other.data && *data == *other.data));
+    }
 };
 
 enum class TemplateProcessorKind : std::uint8_t { Ignore, Rule, Rot };
@@ -77,6 +81,9 @@ struct TemplateProcessor {
     std::vector<Block> locations; // empty means any existing world material
     Block output{Block::Air};
     float probability{1}; // rule match probability, or retained integrity for Rot
+    std::vector<std::string> inputNames{};
+    std::string outputState{};
+    int ruleGroup{}; // nonzero groups implement first-matching RuleProcessor lists
     bool operator==(const TemplateProcessor&) const = default;
 };
 
@@ -133,6 +140,7 @@ struct StructurePiece {
     bool templatePiece{};
     std::vector<StructureBlock> blocks{};
     std::vector<TemplateProcessor> processors{};
+    std::string feature{};
     bool operator==(const StructurePiece&) const = default;
 };
 

@@ -49,8 +49,8 @@ struct TerrainTextureAtlas {
 // Reuses generated chunks, including the border needed for neighbor visibility.
 class VoxelTerrain {
 public:
-    explicit VoxelTerrain(const mcworld::OverworldNoiseRouter& router)
-        : router_(router), worldGenerator_(router), terrainGenerator_(router) {}
+    explicit VoxelTerrain(const mcworld::OverworldNoiseRouter& router, mcworld::GenerationOptions options = {})
+        : router_(router), worldGenerator_(router, options), terrainGenerator_(router, options.terrain) {}
 
     // Finalize requested chunks together so incoming radius-1 feature writes
     // are applied in one canonical decoration order.

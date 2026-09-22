@@ -158,6 +158,14 @@ public:
             && std::abs(floorDiv(p.z, 16) - center_.z) <= kFeatureWriteRadius;
     }
 
+    void setData(int x, int y, int z, std::shared_ptr<const BlockData> data) override {
+        chunkAt(x, z).setData(localBlock(x), y, localBlock(z), std::move(data));
+    }
+    const BlockData* dataAt(int x, int y, int z) const override {
+        if (y < TerrainChunk::minY || y >= TerrainChunk::maxY) return nullptr;
+        return chunkAt(x, z).dataAt(localBlock(x), y, localBlock(z));
+    }
+
     // Writes one block and keeps the chunk's bookkeeping in step: fluid
     // post-processing and all four heightmaps. A write that changes nothing is
     // dropped before any of that, so re-placing an identical block is free and
@@ -170,7 +178,10 @@ public:
         const int localX = localBlock(x);
         const int localZ = localBlock(z);
         const Block previous = chunk.at(localX, y, localZ);
-        if (previous == block) return;
+        if (previous == block) {
+            chunk.setData(localX, y, localZ, nullptr);
+            return;
+        }
 
         chunk.set(localX, y, localZ, block);
         if (isFluid(block)) chunk.fluidPostProcessing.push_back({localX, y, localZ});
@@ -233,7 +244,7 @@ private:
 // Java: `StructurePiece.postProcess`, clipped to the chunk being decorated.
 // Pieces are placed once per chunk they overlap, so the clip is what keeps a
 // piece spanning a chunk border from being written twice.
-void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosition chunk) {
+void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosition chunk, WorldgenRandom& random) {
     const auto [originX, originZ] = blockOrigin(chunk);
     const BoundingBox& box = piece.bounds;
     const int minX = std::max(box.minX, originX);
@@ -241,13 +252,21 @@ void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosi
     const int maxX = std::min(box.maxX, originX + TerrainChunk::width - 1);
     const int maxZ = std::min(box.maxZ, originZ + TerrainChunk::width - 1);
     if (minX > maxX || minZ > maxZ) return;
+    if (!piece.feature.empty()) {
+        FeatureContext context{region, random, {}};
+        (void)placePoolFeature(piece.feature, context, {box.minX, box.minY, box.minZ});
+        return;
+    }
 
     if (piece.templatePiece) {
         for (const auto& block : piece.blocks) {
             const auto [x, y, z] = block.position;
             if (x >= minX && x <= maxX && z >= minZ && z <= maxZ && y > TerrainChunk::minY && y < TerrainChunk::maxY) {
-                if (const auto processed = processStructureBlock(block, region.at(x, y, z), piece.processors))
+                std::shared_ptr<const BlockData> data;
+                if (const auto processed = processStructureBlock(block, region.at(x, y, z), piece.processors, &data)) {
                     region.set(x, y, z, *processed);
+                    region.setData(x, y, z, std::move(data));
+                }
             }
         }
         return;
@@ -278,48 +297,13 @@ void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosi
 
 // --- Feature placement -----------------------------------------------------
 
-// Blocks an ore vein is allowed to replace: Java's `STONE_ORE_REPLACEABLES`,
-// narrowed to the materials this palette produces underground.
-// Java: the oak-like `TreeFeature`s, as one shape. A trunk on soil with a
-// two-tier canopy whose corners are randomly cut.
 bool placeTree(FeatureContext& context, BlockPosition origin) {
-    auto& region = context.world;
-    auto& random = context.random;
-    const auto [x, y, z] = origin;
-        // Leave room for the trunk and the canopy above it.
-        if (y < TerrainChunk::minY + 1 || y + 8 >= TerrainChunk::maxY) return false;
-
-        const Block ground = region.at(x, y - 1, z);
-        if (ground != Block::Grass && ground != Block::Dirt && ground != Block::Podzol) return false;
-
-        const int height = 4 + random.nextInt(3);
-        bool clear = true;
-        for (int trunkY = y; trunkY <= y + height; ++trunkY) {
-            const Block block = region.at(x, trunkY, z);
-            clear &= block == Block::Air || isLeaves(block);
-        }
-        if (!clear) return false;
-
-        for (int trunkY = y; trunkY < y + height; ++trunkY) {
-            region.set(x, trunkY, z, Block::OakLog);
-        }
-        // Canopy: a 5x5 slab for three layers, then a 3x3 cap one above the
-        // trunk. Corners are dropped half the time, which is what gives the
-        // silhouette its irregular edge.
-        for (int dy = -2; dy <= 1; ++dy) {
-            const int radius = dy == 1 ? 1 : 2;
-            for (int dz = -radius; dz <= radius; ++dz) {
-                for (int dx = -radius; dx <= radius; ++dx) {
-                    if (std::abs(dx) == radius && std::abs(dz) == radius && random.nextBoolean()) continue;
-                    const int leafY = y + height + dy;
-                    const Block existing = region.at(x + dx, leafY, z + dz);
-                    if (existing == Block::Air || isLeaves(existing)) {
-                        region.set(x + dx, leafY, z + dz, Block::OakLeaves);
-                    }
-                }
-            }
-        }
-    return true;
+    const Biome biome = context.world.biomeAt(origin.x, origin.y, origin.z);
+    const TreeShape shape = biome == Biome::BirchForest || biome == Biome::OldGrowthBirchForest ? TreeShape::Birch
+        : biome == Biome::OldGrowthPineTaiga ? TreeShape::Pine
+        : biome == Biome::Taiga || biome == Biome::SnowyTaiga || biome == Biome::OldGrowthSpruceTaiga || biome == Biome::Grove ? TreeShape::Spruce
+        : TreeShape::Oak;
+    return straightTreeFeature(shape)(context, origin);
 }
 
 // Java: `SnowAndFreezeFeature`. The only feature that covers the whole chunk
@@ -473,7 +457,7 @@ void decorateChunk(ChunkMap& chunks, const StructureIndex& structures, ChunkPosi
                     if (reference.kind != structure) continue;
                     if (const StructureStart* start = structures.resolve(reference); start && start->variant == variant) {
                         for (const StructurePiece& piece : start->pieces) {
-                            placePiece(region, piece, chunk);
+                            placePiece(region, piece, chunk, random);
                         }
                     }
                 }

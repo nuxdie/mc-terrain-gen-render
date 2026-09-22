@@ -3,6 +3,7 @@
 // or exposed voxel faces.
 
 #include "mcworld/worldgen.hpp"
+#include "mcworld/structure_templates.hpp"
 #include "voxel_renderer.hpp"
 
 #include <raylib.h>
@@ -30,6 +31,11 @@ struct Options {
     bool headless{false};
     bool voxel{false};
     bool terrainOnly{false};
+#ifdef MCWORLD_DEFAULT_TEMPLATE_CATALOG
+    std::string templates{MCWORLD_DEFAULT_TEMPLATE_CATALOG};
+#else
+    std::string templates;
+#endif
 };
 
 // --- Command line ----------------------------------------------------------
@@ -52,6 +58,7 @@ void printUsage(const char* executable) {
         << "--chunks N: N x N area around the selected chunk (default 8, range 1..16).\n"
         << "--voxel: start in voxel mode; with --headless, also build the voxel mesh.\n"
         << "--terrain-only: skip structure and feature finalization.\n"
+        << "--templates FILE: load a generated Minecraft structure catalog (.mcwc).\n"
         << "WASD + mouse: fly; Space/Ctrl: up/down; Shift: 4x speed.\n";
 }
 
@@ -87,6 +94,8 @@ Options parseOptions(int argc, char** argv) {
             options.chunkZ = parseNumber<int>(value, argument);
         } else if (argument == "--chunks") {
             options.chunks = parseNumber<int>(value, argument);
+        } else if (argument == "--templates") {
+            options.templates = value;
         } else {
             throw std::invalid_argument("Unknown option: " + std::string(argument));
         }
@@ -284,7 +293,14 @@ int main(int argc, char** argv) {
         const Options options = parseOptions(argc, argv);
 
         const mcworld::OverworldNoiseRouter router(options.seed);
-        viewer::VoxelTerrain terrain(router);
+        mcworld::GenerationOptions generation;
+        if (!options.templates.empty() && !options.terrainOnly) {
+            generation.templates = mcworld::loadStructureTemplateCatalog(options.templates);
+            std::cout << "structure_templates=" << generation.templates->templates.size()
+                      << " template_pools=" << generation.templates->pools.size()
+                      << " unsupported_asset_semantics=" << generation.templates->unsupported.size() << '\n';
+        }
+        viewer::VoxelTerrain terrain(router, generation);
 
         const auto started = std::chrono::steady_clock::now();
         const int firstChunkX = options.chunkX - options.chunks / 2;
