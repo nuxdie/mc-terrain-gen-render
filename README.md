@@ -73,11 +73,13 @@ blocks; face lighting is presentation-only. Headless output reports
 Generation includes:
 
 - Standard Overworld climate-interval lookup and 4×4×4 biome cells per section,
-  including dappled forest, sulfur caves, and deep dark.
+  including dappled forest, sulfur caves, and deep dark. Materials use Minecraft's
+  SHA-256-seeded, jittered block-biome zoom, including neighboring quart cells.
 - Density fill, enabled or disabled aquifers, pressure barriers, global water
   below Y=63 and lava below Y=-54, and fluid post-processing positions.
 - Bedrock, copper/iron ore veins, biome surface and subsurface materials,
-  badlands bands/pillars, frozen-ocean icebergs, and sulfur/deepslate rules.
+  badlands bands/pillars, temperature-adjusted frozen-ocean icebergs, and
+  sulfur/deepslate rules.
 - Cave, extra-underground cave, and canyon masks from the radius-8 source-chunk
   neighborhood, followed by aquifer-aware carving and exposed-soil repair.
 - Final world-surface, ocean-floor, and motion-blocking heightmaps.
@@ -112,20 +114,25 @@ out-of-range chunk requests throw `std::invalid_argument`.
 This remains a graph-level implementation, not a vanilla parity claim:
 
 - Biome selection uses the standard interval table with first-registered
-  tie-breaking rather than Java's stateful R-tree traversal. Materials read
-  quart cells directly; Minecraft's jittered block-biome zoom is not implemented.
+  tie-breaking rather than Java's stateful R-tree traversal. The block-biome
+  zoom algorithm and seed obfuscation follow Java, but operate on this port's
+  climate-derived palettes.
 - Positional random streams for aquifers/materials use the project's keyed seed
   convention. Carvers use the Java 48-bit LCG and large-feature seeding, with
   lookup-table trigonometry constructed using the host math library.
-- Frozen-ocean extensions implement iceberg geometry and snow caps, but not the
-  temperature-dependent two-block melting adjustment.
+- Frozen-ocean temperature adjustment uses Java's fixed-seed simplex noises;
+  iceberg geometry still uses the project's world-seeded noise convention.
 - Block IDs describe terrain materials, not the complete block-state registry.
   Fluids, snow, and ice have no simulation or state properties. Motion heightmaps
-  use the supported solid/fluid classification; there are no leaf states.
+  follow the supported blocks' motion tags, including powder snow's exclusion;
+  there are no leaf states.
 - This generator covers new, normal Overworld chunks. Saved-world retrogen,
   carving blend filters, structure-reference resolution, other dimensions,
   custom data-pack rule compilation, features/decorations, and lighting are
   outside this API. There is no chunk-status scheduler or world persistence.
+
+See [the stages 6/7B source audit](WORLDGEN_AUDIT.md) for corrections, reference
+test coverage, and the distinction between algorithm checks and full-world parity.
 
 ## Scope
 
@@ -154,6 +161,7 @@ selected area's highest surface, with framing scaled to the area size.
 | `worldgen.cpp` | The router itself: climate, sloped cheese, caves, slides, noodles. |
 | `isosurface.cpp` | Marching tetrahedra over the final density field. |
 | `biome.cpp` | Standard Overworld climate intervals and nearest-point lookup. |
+| `biome_environment.cpp` | Block-biome zoom and fixed-seed frozen-ocean temperatures. |
 | `terrain.cpp` | Block storage, palettes, terrain pass ordering, and heightmaps. |
 | `aquifer.cpp` | Fluid centers, levels, pressure barriers, and update decisions. |
 | `materials.cpp` | Ordered bedrock, vein, surface, and underground rules. |
@@ -174,7 +182,9 @@ that is how the current structure was verified against its predecessor.
 
 `tests/terrain_tests.cpp` covers biome boundaries, Java random vectors, aquifer
 decisions, generation-order determinism, materials/vein height ranges, carving,
-heightmaps, fluid-update validity, and public input validation. The separate
+heightmaps, fluid-update validity, and public input validation. It also checks
+Java-derived biome slice, full carving-mask, biome zoom, and iceberg-temperature
+fixtures. The separate
 `terrain_tests` executable can be selected with CTest's `-R '^terrain_tests$'`.
 
 The smooth view remains the 7A density isosurface. The voxel view shows the 7B

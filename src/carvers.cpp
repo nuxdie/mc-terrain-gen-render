@@ -26,26 +26,27 @@ float perturb(LegacyRandom& r,float scale) {
     float a=r.nextFloat(),b=r.nextFloat(),c=r.nextFloat();return (a-b)*c*scale;
 }
 class Mask {
-    TerrainChunk& chunk;
-    std::vector<bool> bits=std::vector<bool>(16*16*384);
+    int chunkX,chunkZ;
 public:
-    explicit Mask(TerrainChunk& c):chunk(c){}
-    bool at(int x,int y,int z) const {return bits[(z*16+x)*384+y+64];}
+    CarvingMask bits=CarvingMask(16*16*384);
+    Mask(int x,int z):chunkX(x),chunkZ(z){}
     bool reachable(double x,double z,int step,int distance,float width) const {
-        double dx=x-(chunk.chunkX*16+8),dz=z-(chunk.chunkZ*16+8),left=distance-step,radius=width+18;
+        double dx=x-(chunkX*16+8),dz=z-(chunkZ*16+8),left=distance-step,radius=width+2.0F+16.0F;
         return dx*dx+dz*dz-left*left<=radius*radius;
     }
     void ellipsoid(double x,double y,double z,double horizontal,double vertical,double floor,
         const std::array<float,384>* canyon=nullptr) {
-        int ox=chunk.chunkX*16,oz=chunk.chunkZ*16;
+        int ox=chunkX*16,oz=chunkZ*16;
         double maxDelta=16+horizontal*2;
         if(std::abs(x-(ox+8))>maxDelta || std::abs(z-(oz+8))>maxDelta) return;
         int x0=std::max(0,static_cast<int>(std::floor(x-horizontal))-ox-1);
         int x1=std::min(15,static_cast<int>(std::floor(x+horizontal))-ox);
         int z0=std::max(0,static_cast<int>(std::floor(z-horizontal))-oz-1);
         int z1=std::min(15,static_cast<int>(std::floor(z+horizontal))-oz);
-        int y0=std::max(-64,static_cast<int>(std::floor(y-vertical))-1);
-        int y1=std::min(319,static_cast<int>(std::floor(y+vertical))+1);
+        // NoiseBasedChunkGenerator protects the bottom and the top seven blocks.
+        // WorldCarver's loop excludes the mask's lower bound (-63).
+        int y0=std::max(-63,static_cast<int>(std::floor(y-vertical))-1);
+        int y1=std::min(312,static_cast<int>(std::floor(y+vertical))+1);
         for(int bx=x0;bx<=x1;++bx) for(int bz=z0;bz<=z1;++bz) {
             double dx=(ox+bx+.5-x)/horizontal,dz=(oz+bz+.5-z)/horizontal;
             if(dx*dx+dz*dz>=1) continue;
@@ -123,13 +124,12 @@ public:
     }
 };
 }
-void carve(TerrainChunk& chunk,const OverworldNoiseRouter& router,const BiomeSource& biomes,Aquifer& aquifer,bool veins) {
-    Mask mask(chunk);
-    for(int sx=chunk.chunkX-8;sx<=chunk.chunkX+8;++sx) for(int sz=chunk.chunkZ-8;sz<=chunk.chunkZ+8;++sz) {
+CarvingMask buildCarvingMask(int chunkX,int chunkZ,std::int64_t worldSeed) {
+    Mask mask(chunkX,chunkZ);
+    for(int sx=chunkX-8;sx<=chunkX+8;++sx) for(int sz=chunkZ-8;sz<=chunkZ+8;++sz) {
         // All standard Overworld biomes register these same three carvers.
-        (void)biomes.sample(router,sx*16,0,sz*16);
         for(int i=0;i<3;++i) {
-            auto seed=static_cast<std::uint64_t>(router.seed())+i;
+            auto seed=static_cast<std::uint64_t>(worldSeed)+i;
             LegacyRandom seedRandom(seed);auto a=seedRandom.nextLong(),b=seedRandom.nextLong();
             LegacyRandom random((static_cast<std::uint64_t>(sx)*a)^(static_cast<std::uint64_t>(sz)*b)^seed);
             constexpr float probability[]{.15F,.07F,.01F};
@@ -137,25 +137,40 @@ void carve(TerrainChunk& chunk,const OverworldNoiseRouter& router,const BiomeSou
             if(i==2) mask.canyon(random,sx,sz);else mask.caves(random,sx,sz,i==1);
         }
     }
-    auto topMaterial=makeTopMaterialRule(chunk,router,veins);
-    for(int z=0;z<16;++z) for(int x=0;x<16;++x) {
-        bool surface=false;
-        for(int y=319;y>=-64;--y) {
-            if(!mask.at(x,y,z)) {surface=false;continue;}
-            auto old=chunk.at(x,y,z);
-            if(old==Block::Bedrock) continue;
-            if(old==Block::Grass || old==Block::Mycelium) surface=true;
-            auto substance=aquifer.sample(chunk.chunkX*16+x,y,chunk.chunkZ*16+z,0);
-            if(substance.block==Block::Stone) continue;
-            chunk.set(x,y,z,substance.block);
-            if(substance.schedule && isFluid(substance.block)) chunk.fluidPostProcessing.push_back({x,y,z});
-            if(surface && y>-64 && chunk.at(x,y-1,z)==Block::Dirt) {
-                if(auto material=topMaterial(x,y-1,z,isFluid(substance.block))) {
-                    chunk.set(x,y-1,z,*material);
-                    if(isFluid(*material)) chunk.fluidPostProcessing.push_back({x,y-1,z});
+    return std::move(mask.bits);
+}
+void applyCarvingMask(TerrainChunk& chunk,const CarvingMask& mask,Aquifer& aquifer,const TopMaterialRule& topMaterial) {
+    // CarvingMask.visit walks X/Z columns and bottom-to-top runs, then visits
+    // each run top-down. Live heightmaps make this order observable by topMaterial.
+    for(int x=0;x<16;++x) for(int z=0;z<16;++z) {
+        auto at=[&](int y){return mask[(z*16+x)*384+y+64];};
+        for(int next=-64;next<320;) {
+            if(!at(next)) {++next;continue;}
+            int bottom=next;
+            while(next<320 && at(next)) ++next;
+            bool surface=false;
+            for(int y=next-1;y>=bottom;--y) {
+                auto old=chunk.at(x,y,z);
+                if(old==Block::Bedrock) continue;
+                if(old==Block::Grass || old==Block::Mycelium) surface=true;
+                auto substance=aquifer.sample(chunk.chunkX*16+x,y,chunk.chunkZ*16+z,0);
+                if(substance.block==Block::Stone) continue;
+                setWorldgenBlock(chunk,x,y,z,substance.block);
+                if(substance.schedule && isFluid(substance.block)) chunk.fluidPostProcessing.push_back({x,y,z});
+                if(surface && y>-64 && chunk.at(x,y-1,z)==Block::Dirt) {
+                    if(auto material=topMaterial(x,y-1,z,isFluid(substance.block))) {
+                        setWorldgenBlock(chunk,x,y-1,z,*material);
+                        if(isFluid(*material)) chunk.fluidPostProcessing.push_back({x,y-1,z});
+                    }
                 }
             }
         }
     }
+}
+void carve(TerrainChunk& chunk,const OverworldNoiseRouter& router,const BiomeSource& biomes,Aquifer& aquifer,bool veins) {
+    // BiomeSource selects palette entries, not custom generation settings. Every
+    // supported Overworld biome has the same carver list (BiomeDefaultFeatures).
+    auto mask=buildCarvingMask(chunk.chunkX,chunk.chunkZ,router.seed());
+    applyCarvingMask(chunk,mask,aquifer,makeTopMaterialRule(chunk,router,veins,makeBlockBiomeGetter(chunk,router,biomes,false)));
 }
 } // namespace mcworld::detail

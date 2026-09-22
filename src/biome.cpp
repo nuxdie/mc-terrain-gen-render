@@ -72,11 +72,13 @@ std::vector<Point> makePoints() {
         };
         if(kind==0 || kind==3) common(full,0,0,0,2,StonyShore);
         if(kind==4) {
-            for(int frozen=0;frozen<2;++frozen) {
+            // Keep Java's registration order even where climate ranges overlap.
+            for(int region=0;region<3;++region) for(int frozen=0;frozen<2;++frozen) {
                 Range t=frozen==0 ? temperatures[0] : Range{temperatures[1].lo,1};
                 B river=frozen==0 ? FrozenRiver : River;
-                common(t,0,0,0,1,positive?river:StonyShore);
-                common(t,1,1,0,1,river); common(t,0,3,2,5,river);
+                if(region==0) common(t,0,0,0,1,positive?river:StonyShore);
+                else if(region==1) common(t,1,1,0,1,river);
+                else common(t,0,3,2,5,river);
             }
             common(temperatures[0],0,0,6,6,FrozenRiver);
             common({temperatures[1].lo,1},0,0,6,6,River);

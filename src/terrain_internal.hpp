@@ -50,8 +50,17 @@ private:
     const Center& center(int x,int y,int z);
     double pressure(int x,int y,int z,Fluid a,Fluid b,double& noise);
 };
-void buildMaterials(TerrainChunk& chunk,const OverworldNoiseRouter& router,bool veins);
+using BlockBiomeGetter = std::function<Biome(int,int,int)>; // world block coordinates
+std::uint64_t biomeZoomSeed(std::int64_t seed);
+BlockPosition zoomedBiomeQuart(std::uint64_t seed,int x,int y,int z);
+BlockBiomeGetter makeBlockBiomeGetter(const TerrainChunk& chunk,const OverworldNoiseRouter& router,const BiomeSource& source,bool clampY);
+bool meltsFrozenOceanIceberg(Biome biome,int x,int z);
+void buildMaterials(TerrainChunk& chunk,const OverworldNoiseRouter& router,bool veins,BlockBiomeGetter biomes={});
+void setWorldgenBlock(TerrainChunk& chunk,int x,int y,int z,Block block);
+using CarvingMask = std::vector<bool>; // z, x, y; same storage order as TerrainChunk
+CarvingMask buildCarvingMask(int chunkX,int chunkZ,std::int64_t seed);
 using TopMaterialRule = std::function<std::optional<Block>(int,int,int,bool)>;
-TopMaterialRule makeTopMaterialRule(const TerrainChunk& chunk,const OverworldNoiseRouter& router,bool veins);
+void applyCarvingMask(TerrainChunk& chunk,const CarvingMask& mask,Aquifer& aquifer,const TopMaterialRule& topMaterial);
+TopMaterialRule makeTopMaterialRule(const TerrainChunk& chunk,const OverworldNoiseRouter& router,bool veins,BlockBiomeGetter biomes={});
 void carve(TerrainChunk& chunk,const OverworldNoiseRouter& router,const BiomeSource& biomes,Aquifer& aquifer,bool veins);
 } // namespace mcworld::detail

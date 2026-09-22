@@ -11,6 +11,7 @@ add_library(mcworld
     src/worldgen.cpp
     src/isosurface.cpp
     src/biome.cpp
+    src/biome_environment.cpp
     src/terrain.cpp
     src/aquifer.cpp
     src/materials.cpp

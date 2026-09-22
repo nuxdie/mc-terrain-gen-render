@@ -18,14 +18,14 @@ Biome TerrainChunk::biomeAt(int x,int y,int z) const {
     return biomes[(z/4*4+x/4)*(height/4)+(y-minY)/4];
 }
 void TerrainChunk::primeHeightmaps() {
-    worldSurface.fill(minY);oceanFloor.fill(minY);
+    worldSurface.fill(minY);oceanFloor.fill(minY);motionBlocking.fill(minY);
     for(int z=0;z<16;++z) for(int x=0;x<16;++x) for(int y=maxY-1;y>=minY;--y) {
         Block b=at(x,y,z);int column=z*16+x;
         if(b!=Block::Air && worldSurface[column]==minY) worldSurface[column]=y+1;
-        if(isSolid(b) && oceanFloor[column]==minY) oceanFloor[column]=y+1;
+        if(blocksMotion(b) && oceanFloor[column]==minY) oceanFloor[column]=y+1;
+        if((blocksMotion(b) || isFluid(b)) && motionBlocking[column]==minY) motionBlocking[column]=y+1;
     }
-    // All supported non-air states either block motion or contain fluid; no leaves yet.
-    motionBlocking=worldSurface;motionBlockingNoLeaves=motionBlocking;
+    motionBlockingNoLeaves=motionBlocking; // No leaf states in the terrain palette.
 }
 Biome BiomeSource::sample(const OverworldNoiseRouter& router,int x,int y,int z) const {
     return sampleOverworldBiome(router,x,y,z);
@@ -54,7 +54,7 @@ public:
             if(substance.schedule && isFluid(substance.block)) chunk.fluidPostProcessing.push_back({x,y,z});
         }
         chunk.primeHeightmaps();
-        detail::buildMaterials(chunk,router_,options_.oreVeins);
+        detail::buildMaterials(chunk,router_,options_.oreVeins,detail::makeBlockBiomeGetter(chunk,router_,*options_.biomes,true));
         chunk.primeHeightmaps();
         if(options_.carvers) detail::carve(chunk,router_,*options_.biomes,aquifer,options_.oreVeins);
         chunk.primeHeightmaps();
@@ -75,3 +75,17 @@ OverworldTerrainGenerator::OverworldTerrainGenerator(OverworldTerrainGenerator&&
 OverworldTerrainGenerator& OverworldTerrainGenerator::operator=(OverworldTerrainGenerator&&) noexcept=default;
 TerrainChunk OverworldTerrainGenerator::generate(int x,int z) {return impl_->generate(x,z);}
 } // namespace mcworld
+
+namespace mcworld::detail {
+void setWorldgenBlock(TerrainChunk& chunk,int x,int y,int z,Block block) {
+    chunk.set(x,y,z,block);
+    // Material gradients and carver topMaterial observe the live WORLD_SURFACE_WG
+    // heightmap. The remaining heightmaps are primed at the end of each pass.
+    int& height=chunk.worldSurface[z*16+x];
+    if(block!=Block::Air) height=std::max(height,y+1);
+    else if(height==y+1) {
+        height=y;
+        while(height>TerrainChunk::minY && chunk.at(x,height-1,z)==Block::Air) --height;
+    }
+}
+}

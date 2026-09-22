@@ -4,6 +4,9 @@
 #include <limits>
 
 namespace mcworld::detail {
+namespace {
+constexpr int wayBelowMinY=-32512; // DimensionType.WAY_BELOW_MIN_Y (12-bit packed Y)
+}
 std::uint64_t positionalSeed(std::int64_t seed,const char* key,int x,int y,int z) {
     // Project-keyed deterministic convention, not Minecraft's positional factory.
     auto mix=[](std::uint64_t v) {v=(v^(v>>30))*0xbf58476d1ce4e5b9ULL;v=(v^(v>>27))*0x94d049bb133111ebULL;return v^(v>>31);};
@@ -39,19 +42,20 @@ Aquifer::Fluid Aquifer::fluid(int x,int y,int z) {
         lowest=std::min(lowest,level);
     }
     auto climate=router_.sample(x,y,z);
-    int level=-1000000;
+    int level=wayBelowMinY;
     if(!(climate.erosion<-.225F && climate.depth>.9F)) {
         double factor=underwater?1.0-std::clamp((lowest+8-y)/64.0,0.0,1.0):0.0;
         double flood=std::clamp(static_cast<double>(floodedness_.sample(x,y*.67,z)),-1.0,1.0);
-        if(flood>.8-1.1*factor) level=global.level;
-        else if(flood>.4-1.2*factor) {
+        // Mth.map(factor, 1, 0, low, high); preserve its evaluation order.
+        if(flood>-.3+(1.0-factor)*(.8-(-.3))) level=global.level;
+        else if(flood>-.8+(1.0-factor)*(.4-(-.8))) {
             float spread=spread_.sample(floorDiv(x,16),floorDiv(y,40)*.7142857142857143,floorDiv(z,16))*10.0F;
-            level=std::min(lowest,floorDiv(y,40)*40+20+static_cast<int>(std::floor(spread/3))*3);
+            level=std::min(lowest,floorDiv(y,40)*40+20+static_cast<int>(std::floor(spread/3.0))*3);
         }
     }
     Block type=global.type;
-    if(level<=-10 && level!=-1000000 && type!=Block::Lava &&
-        std::abs(lava_.sample(floorDiv(x,64),floorDiv(y,40),floorDiv(z,64)))>.3F) type=Block::Lava;
+    if(level<=-10 && level!=wayBelowMinY && type!=Block::Lava &&
+        std::abs(lava_.sample(floorDiv(x,64),floorDiv(y,40),floorDiv(z,64)))>.3) type=Block::Lava;
     return {level,type};
 }
 const Aquifer::Center& Aquifer::center(int x,int y,int z) {

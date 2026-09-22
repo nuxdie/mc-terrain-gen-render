@@ -16,6 +16,8 @@ enum class Block : std::uint8_t {
 };
 [[nodiscard]] constexpr bool isFluid(Block b) { return b==Block::Water || b==Block::Lava; }
 [[nodiscard]] constexpr bool isSolid(Block b) { return b!=Block::Air && !isFluid(b); }
+// The 26.3 BLOCKS_MOTION_IN_HEIGHTMAP tag excludes powder snow.
+[[nodiscard]] constexpr bool blocksMotion(Block b) { return isSolid(b) && b!=Block::PowderSnow; }
 
 struct BlockPosition { int x{}, y{}, z{}; bool operator==(const BlockPosition&) const = default; };
 
