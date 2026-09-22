@@ -158,10 +158,12 @@ if(MCWORLD_BUILD_TESTS)
         add_test(NAME viewer_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 1 --terrain-only --headless)
         set_tests_properties(viewer_headless PROPERTIES
             PASS_REGULAR_EXPRESSION "mesh_triangles=[1-9][0-9]*"
+            FAIL_REGULAR_EXPRESSION "voxel_faces="
         )
         add_test(NAME viewer_voxel_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 2 --voxel --terrain-only --headless)
         set_tests_properties(viewer_voxel_headless PROPERTIES
             PASS_REGULAR_EXPRESSION "solid_blocks=[1-9][0-9]* water_blocks=[0-9]+ lava_blocks=[0-9]+ voxel_faces=[1-9][0-9]*"
+            FAIL_REGULAR_EXPRESSION "mesh_triangles="
         )
         add_test(NAME viewer_invalid_chunk COMMAND terrain_viewer --chunk-x 2147483647 --headless)
         set_tests_properties(viewer_invalid_chunk PROPERTIES WILL_FAIL TRUE)

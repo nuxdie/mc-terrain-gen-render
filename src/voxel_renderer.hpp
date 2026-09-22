@@ -54,7 +54,10 @@ public:
 
     // Finalize requested chunks together so incoming radius-1 feature writes
     // are applied in one canonical decoration order.
-    void prepareArea(int firstChunkX, int firstChunkZ, int width, int depth);
+    mcworld::GenerationProfile prepareArea(int firstChunkX, int firstChunkZ, int width, int depth);
+
+    // Generate stage-7B terrain without structures or decoration.
+    void prepareTerrainArea(int firstChunkX, int firstChunkZ, int width, int depth);
 
     [[nodiscard]] SmoothTerrainMesh buildSmoothMesh(int chunkX, int chunkZ);
     [[nodiscard]] VoxelMesh buildMesh(int chunkX, int chunkZ);

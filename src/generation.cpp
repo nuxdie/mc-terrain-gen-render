@@ -21,6 +21,7 @@
 #include "mcworld/structure_templates.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -32,6 +33,12 @@
 
 namespace mcworld {
 namespace {
+
+using ProfileClock = std::chrono::steady_clock;
+
+[[nodiscard]] double elapsedSeconds(ProfileClock::time_point started) {
+    return std::chrono::duration<double>(ProfileClock::now() - started).count();
+}
 
 // Chunks whose decoration can write into the output.
 constexpr int kDecorationSourceHalo = detail::kFeatureWriteRadius;
@@ -235,9 +242,14 @@ public:
         if (options_.templates) options_.templates->validate();
     }
 
-    GeneratedArea generateArea(int firstX, int firstZ, int width, int depth) {
+    GeneratedArea generateArea(
+        int firstX, int firstZ, int width, int depth, GenerationProfile* profile
+    ) {
+        if (profile != nullptr) *profile = {};
         const AreaPlan plan = planArea(firstX, firstZ, width, depth, options_.features);
+        const auto stage5Started = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
         const detail::StructureIndex structures = makeStructureIndex();
+        if (profile != nullptr) profile->stage5Seconds += elapsedSeconds(stage5Started);
         OverworldTerrainGenerator terrain(router_, options_.terrain);
 
         // Stage 7B, with stage 5's terrain adaptation folded into the density
@@ -246,19 +258,38 @@ public:
         // entirely rather than adding a zero ~98k times.
         detail::ChunkMap chunks;
         forEachChunk(plan.terrain, [&](ChunkPosition chunk) {
-            const detail::ChunkBeardifier beardifier(structures, structures.references(chunk), chunk);
+            const auto structureStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
+            const auto& references = structures.references(chunk);
+            const detail::ChunkBeardifier beardifier(structures, references, chunk);
+            if (profile != nullptr) {
+                profile->stage5Seconds += elapsedSeconds(structureStarted);
+                ++profile->terrainChunkCount;
+            }
+            const auto terrainStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
             chunks.emplace(chunk, beardifier.empty()
                 ? terrain.generate(chunk.x, chunk.z)
                 : terrain.generate(chunk.x, chunk.z, beardifier));
+            if (profile != nullptr) profile->terrainSeconds += elapsedSeconds(terrainStarted);
         });
 
         // Stage 8. Every source runs before any output chunk is harvested,
         // because a source's writes land in its neighbours.
         forEachChunk(plan.decoration, [&](ChunkPosition chunk) {
+            const auto decorationStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
             detail::decorateChunk(chunks, structures, chunk);
+            if (profile != nullptr) {
+                profile->decorationSeconds += elapsedSeconds(decorationStarted);
+                ++profile->decorationChunkCount;
+            }
         });
 
-        return harvest(plan, structures, chunks);
+        const auto harvestStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
+        GeneratedArea result = harvest(plan, structures, chunks);
+        if (profile != nullptr) {
+            profile->harvestSeconds = elapsedSeconds(harvestStarted);
+            profile->outputChunkCount = result.chunks.size();
+        }
+        return result;
     }
 
     [[nodiscard]] std::vector<StructureStart> starts(ChunkPosition chunk) const {
@@ -314,7 +345,13 @@ OverworldWorldGenerator::OverworldWorldGenerator(OverworldWorldGenerator&&) noex
 OverworldWorldGenerator& OverworldWorldGenerator::operator=(OverworldWorldGenerator&&) noexcept = default;
 
 GeneratedArea OverworldWorldGenerator::generateArea(int firstChunkX, int firstChunkZ, int width, int depth) {
-    return impl_->generateArea(firstChunkX, firstChunkZ, width, depth);
+    return impl_->generateArea(firstChunkX, firstChunkZ, width, depth, nullptr);
+}
+
+GeneratedArea OverworldWorldGenerator::generateArea(
+    int firstChunkX, int firstChunkZ, int width, int depth, GenerationProfile& profile
+) {
+    return impl_->generateArea(firstChunkX, firstChunkZ, width, depth, &profile);
 }
 
 GeneratedChunk OverworldWorldGenerator::generate(int chunkX, int chunkZ) {

@@ -305,6 +305,19 @@ void testAreaValidation() {
         (void)mcworld::BoundingBox{std::numeric_limits<int>::min(), 0, 0, 0, 0, 0}.inflated(1);
     } catch (const std::overflow_error&) { rejected = true; }
     check(rejected, "bounding-box inflation rejects integer overflow");
+
+    mcworld::GenerationOptions profileOptions;
+    profileOptions.structures = false;
+    profileOptions.features = false;
+    profileOptions.terrain.aquifers = false;
+    profileOptions.terrain.oreVeins = false;
+    profileOptions.terrain.carvers = false;
+    mcworld::OverworldWorldGenerator profiledGenerator(router, profileOptions);
+    mcworld::GenerationProfile profile;
+    const auto profiled = profiledGenerator.generateArea(0, 0, 2, 1, profile);
+    check(profile.terrainChunkCount == 2 && profile.decorationChunkCount == 0
+          && profile.outputChunkCount == profiled.chunks.size(),
+          "generation profile reports each phase's chunk count");
 }
 
 void testFeatureSorterAndModifiers() {

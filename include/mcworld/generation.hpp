@@ -202,6 +202,19 @@ struct GeneratedArea {
     [[nodiscard]] GeneratedChunk& at(int chunkX, int chunkZ);
 };
 
+// Optional phase-level measurements for one generateArea call. Stage 5 is
+// measured where its lazy structure index is queried, preserving generation
+// and cache-fill order.
+struct GenerationProfile {
+    double stage5Seconds{};
+    double terrainSeconds{};
+    double decorationSeconds{};
+    double harvestSeconds{};
+    std::size_t terrainChunkCount{};
+    std::size_t decorationChunkCount{};
+    std::size_t outputChunkCount{};
+};
+
 class OverworldWorldGenerator {
 public:
     // `router` must outlive the generator. Like the terrain generator, this
@@ -225,6 +238,12 @@ public:
     // Throws `std::invalid_argument` for an empty area, or for one whose halo
     // would leave the supported coordinate grid.
     [[nodiscard]] GeneratedArea generateArea(int firstChunkX, int firstChunkZ, int width, int depth);
+
+    // The profiled overload produces the same area while recording the major
+    // generation phases. `profile` is reset at the start of the call.
+    [[nodiscard]] GeneratedArea generateArea(
+        int firstChunkX, int firstChunkZ, int width, int depth, GenerationProfile& profile
+    );
 
     // One finalized chunk. Equivalent to a 1x1 `generateArea`, and about as
     // expensive: the halo dominates, so prefer `generateArea` for regions.

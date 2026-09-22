@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -56,7 +57,7 @@ void printUsage(const char* executable) {
         << "\n"
         << "Renders Minecraft 26.3 standard Overworld terrain as a smooth mesh or voxel blocks.\n"
         << "--chunks N: N x N area around the selected chunk (default 8, range 1..16).\n"
-        << "--voxel: start in voxel mode; with --headless, also build the voxel mesh.\n"
+        << "--voxel: start in voxel mode; with --headless, build only the voxel mesh.\n"
         << "--terrain-only: skip structure and feature finalization.\n"
         << "--templates FILE: load a generated Minecraft structure catalog (.mcwc).\n"
         << "WASD + mouse: fly; Space/Ctrl: up/down; Shift: 4x speed.\n";
@@ -175,13 +176,14 @@ void drawOverlay(
     const Options& options,
     const viewer::SmoothTerrainMesh& surface,
     const viewer::VoxelMesh& voxels,
+    double generationSeconds,
     double surfaceSeconds,
     double voxelSeconds,
     bool voxelMode,
     bool wireframe,
     bool faithfulTextures
 ) {
-    DrawRectangle(18, 18, 780, 140, {5, 9, 15, 205});
+    DrawRectangle(18, 18, 940, 140, {5, 9, 15, 205});
     DrawText(
         TextFormat(
             "Seed %lld  |  Center chunk %d, %d  |  %d x %d chunks",
@@ -190,8 +192,9 @@ void drawOverlay(
         32, 30, 21, RAYWHITE
     );
     DrawText(
-        TextFormat("Terrain mesh: %zu triangles / %.2f s  |  Voxels: %zu faces / %.2f s",
-                   surface.triangleCount(), surfaceSeconds, voxels.faceCount(), voxelSeconds),
+        TextFormat("World: %.2f s  |  Smooth: %zu triangles / %.2f s  |  Voxels: %zu faces / %.2f s",
+                   generationSeconds, surface.triangleCount(), surfaceSeconds,
+                   voxels.faceCount(), voxelSeconds),
         32, 58, 18, {150, 205, 200, 255}
     );
     DrawText(TextFormat("View: %s%s  |  %zu solid / %zu water / %zu lava blocks",
@@ -217,6 +220,7 @@ void runViewer(
     const Options& options,
     const viewer::SmoothTerrainMesh& surface,
     const viewer::VoxelMesh& voxels,
+    double generationSeconds,
     double surfaceSeconds,
     double voxelSeconds
 ) {
@@ -275,7 +279,8 @@ void runViewer(
         DrawBoundingBox({{low, -64.0F, low}, {high, 320.0F, high}}, kChunkBounds);
         EndMode3D();
         drawOverlay(
-            options, surface, voxels, surfaceSeconds, voxelSeconds, voxelMode, wireframe, atlas.faithful
+            options, surface, voxels, generationSeconds, surfaceSeconds, voxelSeconds,
+            voxelMode, wireframe, atlas.faithful
         );
         EndDrawing();
     }
@@ -302,52 +307,78 @@ int main(int argc, char** argv) {
         }
         viewer::VoxelTerrain terrain(router, generation);
 
-        const auto started = std::chrono::steady_clock::now();
         const int firstChunkX = options.chunkX - options.chunks / 2;
         const int firstChunkZ = options.chunkZ - options.chunks / 2;
-        // Mesh extraction reads one neighboring chunk. Finalize that halo in a
-        // single area so stage-8 writes crossing the visible edge are present.
-        if (!options.terrainOnly) {
-            terrain.prepareArea(firstChunkX - 1, firstChunkZ - 1, options.chunks + 2, options.chunks + 2);
+        std::optional<mcworld::GenerationProfile> generationProfile;
+        const auto generationStarted = std::chrono::steady_clock::now();
+        // Mesh extraction reads one neighboring chunk, so generate the full
+        // halo before measuring either mesher.
+        if (options.terrainOnly) {
+            terrain.prepareTerrainArea(
+                firstChunkX - 1, firstChunkZ - 1, options.chunks + 2, options.chunks + 2
+            );
+        } else {
+            generationProfile = terrain.prepareArea(
+                firstChunkX - 1, firstChunkZ - 1, options.chunks + 2, options.chunks + 2
+            );
         }
-        const viewer::SmoothTerrainMesh surface =
-            buildArea<viewer::SmoothTerrainMesh>(options, [&](int x, int z) {
+        const double generationSeconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - generationStarted).count();
+        std::cout << "world_generation=" << generationSeconds << 's';
+        if (generationProfile) {
+            std::cout << " stage5=" << generationProfile->stage5Seconds << 's'
+                      << " terrain=" << generationProfile->terrainSeconds << 's'
+                      << " decoration=" << generationProfile->decorationSeconds << 's'
+                      << " harvest=" << generationProfile->harvestSeconds << 's'
+                      << " terrain_chunks=" << generationProfile->terrainChunkCount
+                      << " decoration_chunks=" << generationProfile->decorationChunkCount
+                      << " output_chunks=" << generationProfile->outputChunkCount;
+        }
+        std::cout << '\n';
+
+        viewer::SmoothTerrainMesh surface;
+        double surfaceSeconds = 0.0;
+        if (!options.headless || !options.voxel) {
+            const auto surfaceStarted = std::chrono::steady_clock::now();
+            surface = buildArea<viewer::SmoothTerrainMesh>(options, [&](int x, int z) {
                 return terrain.buildSmoothMesh(x, z);
             });
-        const double surfaceSeconds =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+            surfaceSeconds =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - surfaceStarted).count();
 
-        std::cout << "seed=" << options.seed
-                  << " chunk=(" << options.chunkX << ',' << options.chunkZ << ')'
-                  << " chunks=" << options.chunks << 'x' << options.chunks
-                  << " mesh_triangles=" << surface.triangleCount()
-                   << " generation=" << surfaceSeconds << "s\n";
+            std::cout << "seed=" << options.seed
+                      << " chunk=(" << options.chunkX << ',' << options.chunkZ << ')'
+                      << " chunks=" << options.chunks << 'x' << options.chunks
+                      << " mesh_triangles=" << surface.triangleCount()
+                      << " meshing=" << surfaceSeconds << "s\n";
 
-        if (surface.vertices.empty()) {
-            std::cerr << "The selected area produced no terrain surface.\n";
-            return 2;
-        }
-        if (options.headless && !options.voxel) {
-            return 0;
+            if (surface.vertices.empty()) {
+                std::cerr << "The selected area produced no terrain surface.\n";
+                return 2;
+            }
         }
 
-        const auto voxelStarted = std::chrono::steady_clock::now();
-        const viewer::VoxelMesh voxels = buildArea<viewer::VoxelMesh>(options, [&](int x, int z) {
-            return terrain.buildMesh(x, z);
-        });
-        const double voxelSeconds =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - voxelStarted).count();
-        std::cout << "solid_blocks=" << voxels.solidBlockCount
-                  << " water_blocks=" << voxels.waterBlockCount
-                  << " lava_blocks=" << voxels.lavaBlockCount
-                  << " voxel_faces=" << voxels.faceCount()
-                  << " generation=" << voxelSeconds << "s\n";
+        viewer::VoxelMesh voxels;
+        double voxelSeconds = 0.0;
+        if (!options.headless || options.voxel) {
+            const auto voxelStarted = std::chrono::steady_clock::now();
+            voxels = buildArea<viewer::VoxelMesh>(options, [&](int x, int z) {
+                return terrain.buildMesh(x, z);
+            });
+            voxelSeconds =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - voxelStarted).count();
+            std::cout << "solid_blocks=" << voxels.solidBlockCount
+                      << " water_blocks=" << voxels.waterBlockCount
+                      << " lava_blocks=" << voxels.lavaBlockCount
+                      << " voxel_faces=" << voxels.faceCount()
+                      << " meshing=" << voxelSeconds << "s\n";
+        }
 
         if (options.headless) {
             return 0;
         }
 
-        runViewer(options, surface, voxels, surfaceSeconds, voxelSeconds);
+        runViewer(options, surface, voxels, generationSeconds, surfaceSeconds, voxelSeconds);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "terrain_viewer: " << error.what() << '\n';

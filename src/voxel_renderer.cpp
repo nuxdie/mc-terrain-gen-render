@@ -693,11 +693,21 @@ const mcworld::TerrainChunk& VoxelTerrain::chunk(int x, int z) {
     return it->second;
 }
 
-void VoxelTerrain::prepareArea(int firstChunkX, int firstChunkZ, int width, int depth) {
-    auto area = worldGenerator_.generateArea(firstChunkX, firstChunkZ, width, depth);
+mcworld::GenerationProfile VoxelTerrain::prepareArea(int firstChunkX, int firstChunkZ, int width, int depth) {
+    mcworld::GenerationProfile profile;
+    auto area = worldGenerator_.generateArea(firstChunkX, firstChunkZ, width, depth, profile);
     for (auto& generated : area.chunks) {
         const auto key = std::pair{generated.terrain.chunkX, generated.terrain.chunkZ};
         chunks_.insert_or_assign(key, std::move(generated.terrain));
+    }
+    return profile;
+}
+
+void VoxelTerrain::prepareTerrainArea(int firstChunkX, int firstChunkZ, int width, int depth) {
+    for (int z = 0; z < depth; ++z) {
+        for (int x = 0; x < width; ++x) {
+            (void)chunk(firstChunkX + x, firstChunkZ + z);
+        }
     }
 }
 
