@@ -10,6 +10,11 @@ add_library(mcworld
     src/spline.cpp
     src/worldgen.cpp
     src/isosurface.cpp
+    src/biome.cpp
+    src/terrain.cpp
+    src/aquifer.cpp
+    src/materials.cpp
+    src/carvers.cpp
 )
 add_library(mcworld::mcworld ALIAS mcworld)
 
@@ -49,11 +54,16 @@ if(MCWORLD_BUILD_TESTS)
     target_link_libraries(mcworld_tests PRIVATE mcworld::mcworld)
     target_include_directories(mcworld_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME mcworld_tests COMMAND mcworld_tests)
+    add_executable(terrain_tests tests/terrain_tests.cpp)
+    target_compile_features(terrain_tests PRIVATE cxx_std_20)
+    target_link_libraries(terrain_tests PRIVATE mcworld::mcworld)
+    target_include_directories(terrain_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME terrain_tests COMMAND terrain_tests)
     if(MCWORLD_BUILD_VIEWER)
         add_test(NAME viewer_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 1 --headless)
         add_test(NAME viewer_voxel_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 2 --voxel --headless)
         set_tests_properties(viewer_voxel_headless PROPERTIES
-            PASS_REGULAR_EXPRESSION "positive_density_voxels=[1-9][0-9]* voxel_faces=[1-9][0-9]*"
+            PASS_REGULAR_EXPRESSION "solid_blocks=[1-9][0-9]* water_blocks=[0-9]+ lava_blocks=[0-9]+ voxel_faces=[1-9][0-9]*"
         )
         add_test(NAME viewer_invalid_chunk COMMAND terrain_viewer --chunk-x 2147483647 --headless)
         set_tests_properties(viewer_invalid_chunk PROPERTIES WILL_FAIL TRUE)

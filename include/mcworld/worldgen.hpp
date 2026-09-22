@@ -51,6 +51,7 @@ public:
     [[nodiscard]] std::int64_t seed() const noexcept;
     [[nodiscard]] RouterSample sample(double x, double y, double z) const;
     [[nodiscard]] float sampleFinalDensity(double x, double y, double z) const;
+    [[nodiscard]] float samplePreliminarySurface(int x, int z) const;
 
 private:
     class Impl;

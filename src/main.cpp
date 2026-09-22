@@ -113,8 +113,10 @@ Mesh buildArea(const Options& options, Build build) {
                 vertex.z += static_cast<float>(dz * 16);
             }
             area.vertices.insert(area.vertices.end(), chunk.vertices.begin(), chunk.vertices.end());
-            if constexpr (requires { area.positiveDensityVoxelCount; }) {
-                area.positiveDensityVoxelCount += chunk.positiveDensityVoxelCount;
+            if constexpr (requires { area.solidBlockCount; }) {
+                area.solidBlockCount += chunk.solidBlockCount;
+                area.waterBlockCount += chunk.waterBlockCount;
+                area.lavaBlockCount += chunk.lavaBlockCount;
             }
         }
     }
@@ -231,9 +233,9 @@ void drawOverlay(
                    surface.triangleCount(), surfaceSeconds, voxels.faceCount(), voxelSeconds),
         32, 58, 18, {150, 205, 200, 255}
     );
-    DrawText(TextFormat("View: %s%s  |  %zu positive-density voxels",
-                        voxelMode ? "voxel" : "smooth", wireframe ? " wireframe" : "",
-                        voxels.positiveDensityVoxelCount),
+    DrawText(TextFormat("View: %s%s  |  %zu solid / %zu water / %zu lava blocks",
+                        voxelMode ? "7B terrain" : "7A density", wireframe ? " wireframe" : "",
+                        voxels.solidBlockCount, voxels.waterBlockCount, voxels.lavaBlockCount),
              32, 84, 18, RAYWHITE);
     DrawText("V: smooth/voxel | F: wireframe | WASD + mouse: fly | Shift: boost | TAB: cursor",
              32, 111, 16, {132, 151, 166, 255});
@@ -339,12 +341,15 @@ int main(int argc, char** argv) {
         }
 
         const auto voxelStarted = std::chrono::steady_clock::now();
+        viewer::VoxelTerrain terrain(router);
         const viewer::VoxelMesh voxels = buildArea<viewer::VoxelMesh>(options, [&](int x, int z) {
-            return viewer::buildVoxelMesh(router, x, z);
+            return terrain.buildMesh(x, z);
         });
         const double voxelSeconds =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - voxelStarted).count();
-        std::cout << "positive_density_voxels=" << voxels.positiveDensityVoxelCount
+        std::cout << "solid_blocks=" << voxels.solidBlockCount
+                  << " water_blocks=" << voxels.waterBlockCount
+                  << " lava_blocks=" << voxels.lavaBlockCount
                   << " voxel_faces=" << voxels.faceCount()
                   << " generation=" << voxelSeconds << "s\n";
 

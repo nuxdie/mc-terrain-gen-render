@@ -523,6 +523,12 @@ public:
     }
 
     // final_density = min(post-processed caves, noodle) + beardifier
+    [[nodiscard]] float samplePreliminarySurface(int x, int z) const {
+        requireOnGrid(x, kColumnSpacing);
+        requireOnGrid(z, kColumnSpacing);
+        return preliminarySurface(x, z);
+    }
+
     [[nodiscard]] float sampleFinalDensity(double x, double y, double z) const {
         const float post = squeeze(interpolatePost(x, y, z));
         const NoodleSample n = interpolateNoodle(x, y, z);
@@ -833,6 +839,10 @@ RouterSample OverworldNoiseRouter::sample(double x, double y, double z) const {
 
 float OverworldNoiseRouter::sampleFinalDensity(double x, double y, double z) const {
     return impl_->sampleFinalDensity(x, y, z);
+}
+
+float OverworldNoiseRouter::samplePreliminarySurface(int x, int z) const {
+    return impl_->samplePreliminarySurface(x, z);
 }
 
 } // namespace mcworld

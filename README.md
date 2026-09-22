@@ -1,14 +1,15 @@
-# Minecraft 26.3 Overworld density viewer
+# Minecraft 26.3 Overworld terrain viewer
 
-A C++20 implementation of step 7A in `minecraft-26.3-worldgen.dot`: the
-standard Overworld `NoiseRouter` and final-density graph. The project samples
-an 8×8 chunk area, extracts the `density = 0` surface, and displays it in an interactive
-Raylib viewer.
+A C++20 implementation of the standard Overworld density graph (7A) and
+new-world terrain pipeline (7B) in `minecraft-26.3-worldgen.dot`, including the
+Overworld biome lookup needed by terrain generation. The Raylib viewer displays
+an 8×8 chunk area as either the smooth `density = 0` surface or generated blocks.
 
 This is a graph-level implementation, not a bit-for-bit or seed-compatible Java port.
 It keeps the Minecraft 26.3 graph, constants, terrain splines, cave branches,
-slides, interpolation, and named deterministic noise streams while using a
-stable C++ noise seed derivation. Noise sampling includes seeded coordinate
+slides, interpolation, biome climate intervals, aquifer pressure calculations,
+material-rule ordering, and cave/canyon geometry while using a stable C++ noise
+seed derivation and keyed positional randomness. Noise sampling includes seeded coordinate
 offsets, parity octave normalization, coordinate wrapping, and vertical smearing
 for blended terrain noise. The same numeric seed will produce different terrain
 in Minecraft.
@@ -63,11 +64,68 @@ Controls:
 - `Tab`: release or capture the cursor (camera input pauses while released)
 - `Esc`: exit
 
-The voxel view samples final density at each block center and emits only faces
-next to air, sampling neighboring chunks to suppress internal boundary faces.
-Its neutral height tint and face lighting are presentation only.
-No block type or material is assigned, because the project does not yet
-implement Minecraft's surface-rule or block-material stages.
+The voxel view uses generated terrain blocks sampled at integer block positions.
+It shows material colors, water, and lava, with generated neighboring chunks used
+to suppress internal boundary faces. Fluids are rendered as opaque colored
+blocks; face lighting is presentation-only. Headless output reports
+`solid_blocks`, `water_blocks`, `lava_blocks`, and `voxel_faces`.
+
+Generation includes:
+
+- Standard Overworld climate-interval lookup and 4×4×4 biome cells per section,
+  including dappled forest, sulfur caves, and deep dark.
+- Density fill, enabled or disabled aquifers, pressure barriers, global water
+  below Y=63 and lava below Y=-54, and fluid post-processing positions.
+- Bedrock, copper/iron ore veins, biome surface and subsurface materials,
+  badlands bands/pillars, frozen-ocean icebergs, and sulfur/deepslate rules.
+- Cave, extra-underground cave, and canyon masks from the radius-8 source-chunk
+  neighborhood, followed by aquifer-aware carving and exposed-soil repair.
+- Final world-surface, ocean-floor, and motion-blocking heightmaps.
+
+## Terrain library API
+
+```cpp
+#include <mcworld/terrain.hpp>
+
+mcworld::OverworldNoiseRouter router(12345);
+mcworld::OverworldTerrainGenerator generator(router);
+auto chunk = generator.generate(-1, 0);
+auto block = chunk.at(8, 64, 8);       // local X/Z, world Y
+auto biome = chunk.biomeAt(8, 64, 8); // quart-resolution palette
+auto firstFreeY = chunk.worldSurface[8 * 16 + 8];
+```
+
+`TerrainOptions` can disable aquifers, ore veins, or carvers and accepts a
+`BiomeSource` override. The router must outlive the generator; use a separate
+pair per thread and keep injected inputs stable. Density blending and beardifier
+inputs are supplied through the router. Each chunk owns its blocks and palettes;
+heightmaps store first-free Y, with -64 for empty columns. Fluid-update positions
+are chunk-local X/Z and world Y, deduplicated after carving. They are work items
+for a later simulation stage, not simulated fluid flow.
+
+`TerrainChunk::at`, `set`, and `biomeAt` check bounds. Generator coordinates
+reserve room for the carver neighborhood, aquifer probes, and sampling halos;
+out-of-range chunk requests throw `std::invalid_argument`.
+
+### Compatibility boundaries
+
+This remains a graph-level implementation, not a vanilla parity claim:
+
+- Biome selection uses the standard interval table with first-registered
+  tie-breaking rather than Java's stateful R-tree traversal. Materials read
+  quart cells directly; Minecraft's jittered block-biome zoom is not implemented.
+- Positional random streams for aquifers/materials use the project's keyed seed
+  convention. Carvers use the Java 48-bit LCG and large-feature seeding, with
+  lookup-table trigonometry constructed using the host math library.
+- Frozen-ocean extensions implement iceberg geometry and snow caps, but not the
+  temperature-dependent two-block melting adjustment.
+- Block IDs describe terrain materials, not the complete block-state registry.
+  Fluids, snow, and ice have no simulation or state properties. Motion heightmaps
+  use the supported solid/fluid classification; there are no leaf states.
+- This generator covers new, normal Overworld chunks. Saved-world retrogen,
+  carving blend filters, structure-reference resolution, other dimensions,
+  custom data-pack rule compilation, features/decorations, and lighting are
+  outside this API. There is no chunk-status scheduler or world persistence.
 
 ## Scope
 
@@ -86,7 +144,7 @@ selected area's highest surface, with framing scaled to the area size.
 
 ## Working on the density graph
 
-`src/` is organised to follow the 7A graph:
+`src/` is organised around the 7A graph and 7B terrain stages:
 
 | File | Role |
 | --- | --- |
@@ -95,6 +153,11 @@ selected area's highest surface, with framing scaled to the area size.
 | `spline.cpp` | `TerrainProvider` cubic splines for offset, factor and jaggedness. |
 | `worldgen.cpp` | The router itself: climate, sloped cheese, caves, slides, noodles. |
 | `isosurface.cpp` | Marching tetrahedra over the final density field. |
+| `biome.cpp` | Standard Overworld climate intervals and nearest-point lookup. |
+| `terrain.cpp` | Block storage, palettes, terrain pass ordering, and heightmaps. |
+| `aquifer.cpp` | Fluid centers, levels, pressure barriers, and update decisions. |
+| `materials.cpp` | Ordered bedrock, vein, surface, and underground rules. |
+| `carvers.cpp` | Source-seeded cave/canyon masks and mask application. |
 
 Generation is float arithmetic, so it is sensitive in ways ordinary code is
 not: re-associating a product, widening an intermediate to `double`, renaming a
@@ -109,8 +172,11 @@ few ULP. When refactoring this code for real, dump a large sample of
 float bit patterns before and after, and require the two dumps to be identical;
 that is how the current structure was verified against its predecessor.
 
-The generator intentionally stops at step 7A. Its smooth view shows the density
-isosurface, and its voxel view is a blocky visualization of that same field,
-not final Minecraft blocks. Aquifers, water and lava, true surface materials,
-ores, carvers, biome decoration, and lighting belong to later steps in the
-diagram and are not represented.
+`tests/terrain_tests.cpp` covers biome boundaries, Java random vectors, aquifer
+decisions, generation-order determinism, materials/vein height ranges, carving,
+heightmaps, fluid-update validity, and public input validation. The separate
+`terrain_tests` executable can be selected with CTest's `-R '^terrain_tests$'`.
+
+The smooth view remains the 7A density isosurface. The voxel view shows the 7B
+terrain result, so the two can differ where aquifers, materials, or carvers alter
+blocks. Step 8 features and decoration are not generated.
