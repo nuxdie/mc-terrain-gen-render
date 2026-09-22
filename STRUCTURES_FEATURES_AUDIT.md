@@ -2,11 +2,11 @@
 
 ## Verdict
 
-The implementation follows the broad stage sequence in
-`minecraft-26.3-worldgen.dot`, but **stages 5 and 8 are not complete Minecraft
-implementations**. They use four procedural structure placeholders and nine
-hard-coded feature entries. Matching placement seeds and stage ordinals does
-not make their generated content vanilla-compatible.
+**Stages 5 and 8 are still not complete Minecraft implementations.** The
+follow-up below replaces several missing execution components and feature
+algorithms. Vanilla content coverage, assets, state, and side effects remain
+incomplete. The original audit started with four procedural structure families
+and nine hard-coded feature entries; its findings are retained below as history.
 
 This audit compared the stage-5/8 implementation (`src/structures.cpp`,
 `src/decoration.cpp`, `src/generation.cpp`), its public API, and its terrain
@@ -15,7 +15,105 @@ integration with the local 26.3 decompilation. Java paths below are relative to
 part of the committed deliverable. The earlier biome/terrain audit remains in
 [WORLDGEN_AUDIT.md](WORLDGEN_AUDIT.md).
 
-## Corrections made
+## Implemented after the initial audit
+
+### Structures
+
+- Weighted selection without replacement, retrying failed variants with the
+  Java large-feature legacy random stream. Singleton sets consume no selection
+  draw. The four existing families now retain their village/mineshaft/portal/
+  ancient-city variant identities and use variant-specific biome eligibility.
+- Public `StructureTemplateCatalog` input, wired through `GenerationOptions`.
+  Pool assembly rotates templates and connector orientations, matches connector
+  names/targets, handles rollable joints, respects selection/placement priorities,
+  tries weighted shuffled candidates and fallback pools, and tracks occupied
+  space, internal connectors, depth, and distance limits.
+- Explicit template block placement, connector final blocks, ground deltas,
+  rigid/terrain-matching projection, reciprocal jigsaw junctions, and positional
+  material ignore/rule/rot processors. Template catalogs fail validation on
+  unknown IDs or invalid sizes/weights rather than silently substituting boxes.
+- Beardifier collection now filters nearby pieces, excludes terrain-matching
+  pool boxes, and adds eligible junctions at Java's `0.4F` weight. Non-pool pieces
+  use ground delta zero. Junction boundary tests use strict source inequalities.
+
+The catalog API accepts decoded material-level data, **not NBT files**. The local
+source checkout contains Java code but no structure NBT resource tree. No vanilla
+template assets or complete pool catalog have been added. Without a configured
+catalog, structure geometry remains the prior procedural approximation. The
+template engine does not yet implement pool aliases, expansion hacks, liquid
+settings, all processors, multiple palettes, block-state rotation, template
+entities, structure-specific `afterPlace`, or the complete jigsaw start options.
+Terrain-matching blocks use the supplied preliminary surface-height sampler,
+rather than vanilla's final terrain heightmap. These are remaining stage-5/8
+gaps, not a claim that the template engine is fully vanilla-compatible.
+
+### Features
+
+- `feature_placement.cpp`: identity-based, ordered reverse-DFS FeatureSorter with
+  dependency-cycle rejection and global per-step indices. The decoration loop
+  selects those indices from the actual 3×3 biome union.
+- Depth-first modifier execution: count, count-extra, rarity, square, heightmap,
+  uniform/triangular/very-biased height providers, biome and block predicates,
+  offsets, and environment scans. Nested sequence/selector features retain the
+  same RNG and top-level biome context. Success never short-circuits remaining
+  terminal placements.
+- `features.cpp`: source-based ore ellipsoids, containment pruning, once-per-block
+  testing, ordered target rules, and air-exposure discard. Standard coal, iron,
+  gold, redstone, diamond, lapis, copper, emerald, and underground rock/dirt/gravel
+  variants use the source counts, sizes, rarity, height distributions, and
+  discard probabilities. Stone/deepslate ore materials are distinct.
+- Disk column geometry and state-provider support, including sand-to-sandstone
+  support rules; configured water and lava springs; fixed-seed, height-adjusted
+  biome temperatures and frozen-ocean modifiers for surface freezing/snow.
+
+The per-biome catalog still includes only supported entries; it is not the full
+vanilla biome-generation registry, so global feature indices and therefore
+seeds still differ. Tree shapes, detailed snow/block states, biome disk/tree
+membership, many feature types (vegetation, lakes, dungeons, cave decoration,
+etc.), and generation side effects are still incomplete. New ore materials use
+fallback atlas tiles in the viewer until their textures are added.
+
+### Template catalog example
+
+This small authored marker illustrates the API, not a vanilla village asset:
+
+```cpp
+#include <mcworld/structure_templates.hpp>
+
+auto catalog = std::make_shared<mcworld::StructureTemplateCatalog>();
+mcworld::StructureTemplate marker;
+marker.size = {1, 1, 1};
+marker.blocks = {{{0, 0, 0}, mcworld::Block::Bricks}};
+catalog->templates["marker"] = marker;
+catalog->pools["markers"].elements = {{"marker", 1, mcworld::PieceProjection::Rigid}};
+catalog->starts[mcworld::StructureVariant::VillagePlains] = {"markers", 0, 16, 120, false};
+mcworld::GenerationOptions options;
+options.templates = catalog;
+mcworld::OverworldNoiseRouter router(12345);
+mcworld::OverworldWorldGenerator generator(router, options);
+```
+
+Keep the catalog immutable for the generator's lifetime. Positions in template
+definitions are local; positions in generated piece block lists are world-space.
+
+### Added verification
+
+The generation suite now also tests reverse-DFS ordering/cycles, depth-first RNG
+consumption, nested features and biome filters, weighted retries, template catalog
+validation, deterministic rotated assembly, empty-element termination, reciprocal
+junction heights, projection-aware beard density, processor chaining, public
+catalog-to-decoration integration, and live template-write heightmaps.
+
+Four independent Java source-expression ore fixtures check complete voxel-mask
+hashes, block counts, and the next RNG value after placement, including a size-64
+vein and air-exposure discard. They are component oracles, not full-world parity.
+
+Follow-up verification passed: all 3 headless tests, all 8 viewer-enabled tests
+(including headless rendering and CLI validation), and `generation_tests` under
+AddressSanitizer/UndefinedBehaviorSanitizer. The standalone density and terrain
+characterization tests continue to pass without updated expectations.
+
+## Original audit corrections
 
 - **Structure biome tags:** villages now allow only plains, meadow, desert,
   savanna, snowy plains, and taiga. Mineshafts allow oceans and reject deep dark.
@@ -51,7 +149,7 @@ part of the committed deliverable. The earlier biome/terrain audit remains in
 These intentionally change stage-5/8 output. Standalone 7A and 7B algorithms and
 recorded density values were not edited.
 
-## Diagram/source coverage
+## Original diagram/source findings (before the follow-up above)
 
 | Diagram operation | Java reference | Implementation and remaining gap |
 | --- | --- | --- |
@@ -72,7 +170,7 @@ recorded density values were not edited.
 | Freeze/snow | `feature/SnowAndFreezeFeature.java` | Corrected traversal/heightmap and zoomed biome query. Still uses a hard-coded snowy-biome predicate, generic support test, and one snow material. Missing altitude/temperature modifiers, light checks, exact snow support rules, and snowy block states. |
 | Write side effects | Diagram `WorldGenRegion.setBlock` branch | Blocks, heightmaps, and deferred fluid positions only. POI, block entities, loot, shape updates, scheduled ticks, entities, and full block states are absent. |
 
-## Verification
+## Original verification
 
 `tests/generation_tests.cpp` now checks:
 
@@ -93,10 +191,11 @@ passed. No full vanilla chunk comparison was performed.
 
 ## Work required for a full parity claim
 
-1. Port the structure-set/variant registry and placement policies, generation
-   algorithms, templates, jigsaw pools, processors, piece metadata, and hooks.
-2. Port the complete biome feature lists, identity-based FeatureSorter, generic
-   modifier execution, configured features, and required block states/side effects.
+1. Complete the structure registry, placement policies, actual family generation
+   algorithms, vanilla template/pool assets, remaining jigsaw/processor semantics,
+   and structure-specific hooks.
+2. Complete the biome feature lists, remaining modifiers/configured features,
+   and required block states/side effects on top of the new execution machinery.
 3. Replace the existing noise/keyed-RNG and biome tie-breaking compatibility
    differences in stages 6/7 with vanilla behavior; otherwise equal seeds still
    select different terrain and biomes even with exact stage-5/8 algorithms.

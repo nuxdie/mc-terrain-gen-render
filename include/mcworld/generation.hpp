@@ -48,6 +48,40 @@ enum class StructureKind : std::uint8_t {
     AncientCity,
 };
 
+enum class StructureVariant : std::uint8_t {
+    Generic,
+    VillagePlains, VillageDesert, VillageSavanna, VillageSnowy, VillageTaiga,
+    Mineshaft, MineshaftMesa,
+    PortalStandard, PortalDesert, PortalJungle, PortalSwamp, PortalMountain, PortalOcean, PortalNether,
+    AncientCity,
+};
+
+enum class PieceProjection : std::uint8_t { NonPool, Rigid, TerrainMatching };
+
+struct JigsawJunction {
+    int sourceX{}, sourceGroundY{}, sourceZ{}, deltaY{};
+    PieceProjection destinationProjection{PieceProjection::Rigid};
+    bool operator==(const JigsawJunction&) const = default;
+};
+
+struct StructureBlock {
+    BlockPosition position; // world coordinates, unlike TerrainChunk block access
+    Block block{Block::Air};
+    bool operator==(const StructureBlock&) const = default;
+};
+
+enum class TemplateProcessorKind : std::uint8_t { Ignore, Rule, Rot };
+struct TemplateProcessor {
+    TemplateProcessorKind kind{TemplateProcessorKind::Ignore};
+    std::vector<Block> inputs; // empty means any template material
+    std::vector<Block> locations; // empty means any existing world material
+    Block output{Block::Air};
+    float probability{1}; // rule match probability, or retained integrity for Rot
+    bool operator==(const TemplateProcessor&) const = default;
+};
+
+struct StructureTemplateCatalog;
+
 // Relied on by the stage-8 ordering, which walks every kind.
 constexpr std::size_t kStructureKindCount = static_cast<std::size_t>(StructureKind::AncientCity) + 1;
 
@@ -93,6 +127,12 @@ struct StructurePiece {
     Block block{Block::Stone};
     bool hollow{};
     int groundLevelDelta{};
+    PieceProjection projection{PieceProjection::NonPool};
+    std::vector<JigsawJunction> junctions{};
+    // Template pieces place explicit blocks instead of the procedural box.
+    bool templatePiece{};
+    std::vector<StructureBlock> blocks{};
+    std::vector<TemplateProcessor> processors{};
     bool operator==(const StructurePiece&) const = default;
 };
 
@@ -102,6 +142,7 @@ struct StructureStart {
     TerrainAdjustment adjustment{TerrainAdjustment::None};
     DecorationStep step{DecorationStep::SurfaceStructures};
     std::vector<StructurePiece> pieces;
+    StructureVariant variant{StructureVariant::Generic};
 
     [[nodiscard]] bool valid() const noexcept { return !pieces.empty(); }
     // Union of piece boxes, inflated by 12 for adapting structures, as in
@@ -127,6 +168,9 @@ struct GenerationOptions {
     // still happen without it, so `false` yields stage-7B terrain plus stage-5
     // metadata.
     bool features = true;
+    // Optional immutable template/pool definitions; see structure_templates.hpp.
+    // A configured start pool replaces the corresponding procedural family.
+    std::shared_ptr<const StructureTemplateCatalog> templates;
 };
 
 // One finalized chunk: its blocks plus the stage-5 metadata a saved chunk

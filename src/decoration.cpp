@@ -16,6 +16,7 @@
 //    again per position, by the features themselves).
 
 #include "generation_internal.hpp"
+#include "feature_placement.hpp"
 #include "terrain_internal.hpp"
 
 #include <algorithm>
@@ -34,14 +35,6 @@ namespace {
 [[nodiscard]] bool caveBiome(Biome biome) {
     return biome == Biome::DripstoneCaves || biome == Biome::LushCaves
         || biome == Biome::SulfurCaves || biome == Biome::DeepDark;
-}
-
-[[nodiscard]] bool snowyBiome(Biome biome) {
-    using enum Biome;
-    return biome == SnowyPlains || biome == IceSpikes || biome == SnowyTaiga || biome == Grove
-        || biome == SnowySlopes || biome == FrozenPeaks || biome == JaggedPeaks
-        || biome == FrozenRiver || biome == SnowyBeach || biome == FrozenOcean
-        || biome == DeepFrozenOcean;
 }
 
 // Biomes whose feature list includes any oak-like tree. The port places one
@@ -79,7 +72,7 @@ namespace {
 // Ores are registered on every Overworld biome.
 [[nodiscard]] bool everyBiome(Biome) { return true; }
 
-// The deep dark registers no decoration beyond the ancient city.
+// The deep dark omits the default spring list.
 [[nodiscard]] bool outsideDeepDark(Biome biome) { return biome != Biome::DeepDark; }
 
 // Clay disks need a seabed, which the cave biomes do not have.
@@ -122,7 +115,7 @@ using BiomeSet = std::array<bool, kBiomeCount>;
 //
 // Reads and writes use world X/Z and world Y, like the rest of stage 8 - only
 // `TerrainChunk` itself is chunk-local.
-class DecorationRegion {
+class DecorationRegion final : public FeatureWorld {
 public:
     DecorationRegion(ChunkMap& chunks, ChunkPosition center, std::int64_t seed)
         : chunks_(&chunks), center_(center), biomeZoomSeed_(biomeZoomSeed(seed)) {}
@@ -149,6 +142,21 @@ public:
     [[nodiscard]] int worldSurface(int x, int z) const { return height(&TerrainChunk::worldSurface, x, z); }
     [[nodiscard]] int oceanFloor(int x, int z) const { return height(&TerrainChunk::oceanFloor, x, z); }
     [[nodiscard]] int motionBlocking(int x, int z) const { return height(&TerrainChunk::motionBlocking, x, z); }
+
+    int height(FeatureHeightmap type, int x, int z) const override {
+        switch (type) {
+        case FeatureHeightmap::WorldSurface: return worldSurface(x, z);
+        case FeatureHeightmap::OceanFloor: return oceanFloor(x, z);
+        case FeatureHeightmap::MotionBlocking: return motionBlocking(x, z);
+        }
+        return TerrainChunk::minY;
+    }
+
+    bool canWrite(BlockPosition p) const override {
+        return p.y >= TerrainChunk::minY && p.y < TerrainChunk::maxY
+            && std::abs(floorDiv(p.x, 16) - center_.x) <= kFeatureWriteRadius
+            && std::abs(floorDiv(p.z, 16) - center_.z) <= kFeatureWriteRadius;
+    }
 
     // Writes one block and keeps the chunk's bookkeeping in step: fluid
     // post-processing and all four heightmaps. A write that changes nothing is
@@ -234,6 +242,17 @@ void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosi
     const int maxZ = std::min(box.maxZ, originZ + TerrainChunk::width - 1);
     if (minX > maxX || minZ > maxZ) return;
 
+    if (piece.templatePiece) {
+        for (const auto& block : piece.blocks) {
+            const auto [x, y, z] = block.position;
+            if (x >= minX && x <= maxX && z >= minZ && z <= maxZ && y > TerrainChunk::minY && y < TerrainChunk::maxY) {
+                if (const auto processed = processStructureBlock(block, region.at(x, y, z), piece.processors))
+                    region.set(x, y, z, *processed);
+            }
+        }
+        return;
+    }
+
     // The bedrock floor at `minY` is never overwritten, so the vertical span
     // starts one above it.
     const int minY = std::max(box.minY, TerrainChunk::minY + 1);
@@ -261,129 +280,17 @@ void placePiece(DecorationRegion& region, const StructurePiece& piece, ChunkPosi
 
 // Blocks an ore vein is allowed to replace: Java's `STONE_ORE_REPLACEABLES`,
 // narrowed to the materials this palette produces underground.
-[[nodiscard]] bool oreReplaceable(Block block) {
-    using enum Block;
-    return block == Stone || block == Deepslate || block == Tuff || block == Granite;
-}
-
-// Java: an `OreConfiguration` together with the height range and count of the
-// placement it is registered with.
-struct OreVein {
-    Block ore;
-    int veinsPerChunk;
-    int minY;
-    int maxY;
-    int blocksPerVein;
-};
-
-// The five standard Overworld ore features. Every number is part of the world.
-constexpr OreVein kCoalVein{.ore = Block::CoalOre, .veinsPerChunk = 16,
-                            .minY = 0, .maxY = 192, .blocksPerVein = 12};
-constexpr OreVein kIronVein{.ore = Block::IronOre, .veinsPerChunk = 12,
-                            .minY = -56, .maxY = 96, .blocksPerVein = 9};
-constexpr OreVein kGoldVein{.ore = Block::GoldOre, .veinsPerChunk = 4,
-                            .minY = -56, .maxY = 32, .blocksPerVein = 8};
-constexpr OreVein kRedstoneVein{.ore = Block::RedstoneOre, .veinsPerChunk = 8,
-                                .minY = -63, .maxY = 16, .blocksPerVein = 8};
-constexpr OreVein kDiamondVein{.ore = Block::DiamondOre, .veinsPerChunk = 4,
-                               .minY = -63, .maxY = 16, .blocksPerVein = 6};
-
-// Java: `OreFeature`. Each vein is a random walk from a uniformly chosen start,
-// replacing the stone-like blocks it passes through. The walk is not clamped to
-// the world: steps that leave it read as air and write nothing.
-void placeOreVeins(
-    DecorationRegion& region, WorldgenRandom& random, ChunkPosition chunk, const OreVein& vein
-) {
-    const auto [originX, originZ] = blockOrigin(chunk);
-    for (int attempt = 0; attempt < vein.veinsPerChunk; ++attempt) {
-        int x = originX + random.nextInt(TerrainChunk::width);
-        int y = vein.minY + random.nextInt(vein.maxY - vein.minY + 1);
-        int z = originZ + random.nextInt(TerrainChunk::width);
-        for (int block = 0; block < vein.blocksPerVein; ++block) {
-            if (oreReplaceable(region.at(x, y, z))) {
-                region.set(x, y, z, vein.ore);
-            }
-            x += random.nextInt(3) - 1;
-            y += random.nextInt(3) - 1;
-            z += random.nextInt(3) - 1;
-        }
-    }
-}
-
-// Binds a vein configuration into the uniform placement signature the feature
-// catalog stores.
-template <OreVein Vein>
-void placeOre(DecorationRegion& region, WorldgenRandom& random, ChunkPosition chunk) {
-    placeOreVeins(region, random, chunk, Vein);
-}
-
-// Java: `DISK_CLAY`. A flat disk in the seabed under open water.
-void placeClayDisks(DecorationRegion& region, WorldgenRandom& random, ChunkPosition chunk) {
-    constexpr int attempts = 3;
-    const auto [originX, originZ] = blockOrigin(chunk);
-    for (int attempt = 0; attempt < attempts; ++attempt) {
-        const int x = originX + random.nextInt(TerrainChunk::width);
-        const int z = originZ + random.nextInt(TerrainChunk::width);
-        const int surface = region.worldSurface(x, z);
-        if (surface <= TerrainChunk::minY || region.at(x, surface - 1, z) != Block::Water) continue;
-
-        const int floor = region.oceanFloor(x, z) - 1;
-        if (!surfaceBiome(region.biomeAt(x, floor + 1, z))) continue;
-
-        const int radius = 2 + random.nextInt(3);
-        for (int dz = -radius; dz <= radius; ++dz) {
-            for (int dx = -radius; dx <= radius; ++dx) {
-                if (dx * dx + dz * dz > radius * radius) continue;
-                for (int y = floor - 1; y <= floor + 1; ++y) {
-                    const Block block = region.at(x + dx, y, z + dz);
-                    if (block == Block::Dirt || block == Block::Sand || block == Block::Gravel) {
-                        region.set(x + dx, y, z + dz, Block::Clay);
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Java: `SPRING_WATER`. A single water source in a rock face with exactly one
-// opening; see `canPlaceWaterSpring` for the rule.
-void placeSprings(DecorationRegion& region, WorldgenRandom& random, ChunkPosition chunk) {
-    constexpr int attempts = 16;
-    constexpr int lowestY = TerrainChunk::minY + 8;
-    constexpr int spanY = 120;
-    const auto [originX, originZ] = blockOrigin(chunk);
-    for (int attempt = 0; attempt < attempts; ++attempt) {
-        const int x = originX + random.nextInt(TerrainChunk::width);
-        const int y = lowestY + random.nextInt(spanY);
-        const int z = originZ + random.nextInt(TerrainChunk::width);
-        if (!outsideDeepDark(region.biomeAt(x, y, z))) continue;
-
-        const std::array<Block, 4> sides{
-            region.at(x - 1, y, z), region.at(x + 1, y, z),
-            region.at(x, y, z - 1), region.at(x, y, z + 1),
-        };
-        if (canPlaceWaterSpring(region.at(x, y, z), region.at(x, y + 1, z),
-                                region.at(x, y - 1, z), sides)) {
-            region.set(x, y, z, Block::Water);
-        }
-    }
-}
-
 // Java: the oak-like `TreeFeature`s, as one shape. A trunk on soil with a
 // two-tier canopy whose corners are randomly cut.
-void placeTrees(DecorationRegion& region, WorldgenRandom& random, ChunkPosition chunk) {
-    const auto [originX, originZ] = blockOrigin(chunk);
-    const int attempts = 2 + random.nextInt(4);
-    for (int attempt = 0; attempt < attempts; ++attempt) {
-        const int x = originX + random.nextInt(TerrainChunk::width);
-        const int z = originZ + random.nextInt(TerrainChunk::width);
-        const int y = region.worldSurface(x, z);
+bool placeTree(FeatureContext& context, BlockPosition origin) {
+    auto& region = context.world;
+    auto& random = context.random;
+    const auto [x, y, z] = origin;
         // Leave room for the trunk and the canopy above it.
-        if (y < TerrainChunk::minY + 1 || y + 8 >= TerrainChunk::maxY) continue;
-        if (!treeBiome(region.biomeAt(x, y, z))) continue;
+        if (y < TerrainChunk::minY + 1 || y + 8 >= TerrainChunk::maxY) return false;
 
         const Block ground = region.at(x, y - 1, z);
-        if (ground != Block::Grass && ground != Block::Dirt && ground != Block::Podzol) continue;
+        if (ground != Block::Grass && ground != Block::Dirt && ground != Block::Podzol) return false;
 
         const int height = 4 + random.nextInt(3);
         bool clear = true;
@@ -391,7 +298,7 @@ void placeTrees(DecorationRegion& region, WorldgenRandom& random, ChunkPosition 
             const Block block = region.at(x, trunkY, z);
             clear &= block == Block::Air || isLeaves(block);
         }
-        if (!clear) continue;
+        if (!clear) return false;
 
         for (int trunkY = y; trunkY < y + height; ++trunkY) {
             region.set(x, trunkY, z, Block::OakLog);
@@ -412,26 +319,32 @@ void placeTrees(DecorationRegion& region, WorldgenRandom& random, ChunkPosition 
                 }
             }
         }
-    }
+    return true;
 }
 
 // Java: `SnowAndFreezeFeature`. The only feature that covers the whole chunk
 // deterministically rather than sampling positions, hence the unused random.
-void freezeTopLayer(DecorationRegion& region, WorldgenRandom&, ChunkPosition chunk) {
-    const auto [originX, originZ] = blockOrigin(chunk);
+bool freezeTopLayer(FeatureContext& context, BlockPosition origin) {
+    auto& region = context.world;
+    const int originX = origin.x;
+    const int originZ = origin.z;
     for (int x = originX; x < originX + TerrainChunk::width; ++x) {
         for (int z = originZ; z < originZ + TerrainChunk::width; ++z) {
-            const int y = region.motionBlocking(x, z);
-            if (!snowyBiome(region.biomeAt(x, y, z))) continue;
-            if (y > TerrainChunk::minY && region.at(x, y - 1, z) == Block::Water) {
+            const int y = region.height(FeatureHeightmap::MotionBlocking, x, z);
+            const Biome biome = region.biomeAt(x, y, z);
+            if (y > TerrainChunk::minY && biomeTemperature(biome, x, y - 1, z) < 0.15F
+                && region.at(x, y - 1, z) == Block::Water) {
                 region.set(x, y - 1, z, Block::Ice);
             }
-            if (y < TerrainChunk::maxY && region.at(x, y, z) == Block::Air
-                && blocksMotion(region.at(x, y - 1, z))) {
+            const Block below = region.at(x, y - 1, z);
+            if (y < TerrainChunk::maxY && biomeTemperature(biome, x, y, z) < 0.15F
+                && biomeHasPrecipitation(biome) && region.at(x, y, z) == Block::Air
+                && blocksMotion(below) && below != Block::Ice && below != Block::PackedIce) {
                 region.set(x, y, z, Block::Snow);
             }
         }
     }
+    return true;
 }
 
 // --- The feature catalog ---------------------------------------------------
@@ -439,30 +352,95 @@ void freezeTopLayer(DecorationRegion& region, WorldgenRandom&, ChunkPosition chu
 // One entry of Java's per-biome `PlacedFeature` lists, flattened: which step it
 // belongs to, which biomes register it, and what it does.
 struct FeatureDefinition {
+    std::string name;
     DecorationStep step;
     // Checked against the biomes present in the decoration neighbourhood, to
     // decide whether the feature runs at all. Features that care about the
     // biome under a specific position check it again themselves.
     bool (*registeredIn)(Biome);
-    void (*place)(DecorationRegion&, WorldgenRandom&, ChunkPosition);
+    PlacedFeature placed;
 };
 
-// Java's `FeatureSorter` output, precomputed by hand.
-//
-// A feature's index *within its step* is part of its seed, so this table's
-// order is part of the generated world: appending is safe, reordering or
-// removing an entry is not.
-constexpr std::array kFeatures{
-    FeatureDefinition{DecorationStep::UndergroundOres, surfaceBiome, placeClayDisks},
-    FeatureDefinition{DecorationStep::UndergroundOres, everyBiome, placeOre<kCoalVein>},
-    FeatureDefinition{DecorationStep::UndergroundOres, everyBiome, placeOre<kIronVein>},
-    FeatureDefinition{DecorationStep::UndergroundOres, everyBiome, placeOre<kGoldVein>},
-    FeatureDefinition{DecorationStep::UndergroundOres, everyBiome, placeOre<kRedstoneVein>},
-    FeatureDefinition{DecorationStep::UndergroundOres, everyBiome, placeOre<kDiamondVein>},
-    FeatureDefinition{DecorationStep::FluidSprings, outsideDeepDark, placeSprings},
-    FeatureDefinition{DecorationStep::VegetalDecoration, treeBiome, placeTrees},
-    FeatureDefinition{DecorationStep::TopLayerModification, snowyBiome, freezeTopLayer},
+// Build per-biome identity lists, then run Java's dependency ordering once.
+// Changing registration or biome membership can change feature indices/seeds.
+struct FeatureCatalog {
+    std::vector<FeatureDefinition> features;
+    FeatureOrder order;
+    FeatureCatalog();
 };
+
+FeatureCatalog::FeatureCatalog() {
+    using namespace placement;
+    const auto addOre = [&](std::string name, Block stoneOre, Block deepOre, int size, float discard,
+                            PlacementModifier frequency, IntProvider height, bool (*biomes)(Biome) = everyBiome) {
+        std::vector<OreTarget> targets{
+            {[](Block b) { return b == Block::Stone || b == Block::Granite || b == Block::Diorite || b == Block::Andesite; }, stoneOre},
+            {[](Block b) { return b == Block::Deepslate || b == Block::Tuff; }, deepOre}};
+        features.push_back({std::move(name), DecorationStep::UndergroundOres, biomes,
+            {oreFeature(std::move(targets), size, discard), {std::move(frequency), square(), heightRange(std::move(height)), biome()}}});
+    };
+    // BiomeDefaultFeatures.addDefaultUndergroundVariety / addDefaultOres.
+    addOre("ore_dirt", Block::Dirt, Block::Dirt, 33, 0, count(constant(7)), uniform(0, 160));
+    addOre("ore_gravel", Block::Gravel, Block::Gravel, 33, 0, count(constant(14)), uniform(-64, 319));
+    for (const auto& [name, block] : std::array{std::pair{"granite", Block::Granite},
+            std::pair{"diorite", Block::Diorite}, std::pair{"andesite", Block::Andesite}}) {
+        addOre(std::string("ore_") + name + "_upper", block, block, 64, 0, rarity(6), uniform(64, 128));
+        addOre(std::string("ore_") + name + "_lower", block, block, 64, 0, count(constant(2)), uniform(0, 60));
+    }
+    addOre("ore_tuff", Block::Tuff, Block::Tuff, 64, 0, count(constant(2)), uniform(-64, 0));
+    addOre("ore_coal_upper", Block::CoalOre, Block::DeepslateCoalOre, 17, 0, count(constant(30)), uniform(136, 319));
+    addOre("ore_coal_lower", Block::CoalOre, Block::DeepslateCoalOre, 17, .5F, count(constant(20)), triangle(0, 192));
+    addOre("ore_iron_upper", Block::IronOre, Block::DeepslateIronOre, 9, 0, count(constant(90)), triangle(80, 384));
+    addOre("ore_iron_middle", Block::IronOre, Block::DeepslateIronOre, 9, 0, count(constant(10)), triangle(-24, 56));
+    addOre("ore_iron_small", Block::IronOre, Block::DeepslateIronOre, 4, 0, count(constant(10)), uniform(-64, 72));
+    addOre("ore_gold", Block::GoldOre, Block::DeepslateGoldOre, 9, .5F, count(constant(4)), triangle(-64, 32));
+    addOre("ore_gold_lower", Block::GoldOre, Block::DeepslateGoldOre, 9, .5F, count(uniform(0, 1)), uniform(-64, -48));
+    addOre("ore_redstone", Block::RedstoneOre, Block::DeepslateRedstoneOre, 8, 0, count(constant(4)), uniform(-64, 15));
+    addOre("ore_redstone_lower", Block::RedstoneOre, Block::DeepslateRedstoneOre, 8, 0, count(constant(8)), triangle(-96, -32));
+    addOre("ore_diamond", Block::DiamondOre, Block::DeepslateDiamondOre, 4, .5F, count(constant(7)), triangle(-144, 16));
+    addOre("ore_diamond_medium", Block::DiamondOre, Block::DeepslateDiamondOre, 8, .5F, count(constant(2)), uniform(-64, -4));
+    addOre("ore_diamond_large", Block::DiamondOre, Block::DeepslateDiamondOre, 12, .7F, rarity(9), triangle(-144, 16));
+    addOre("ore_diamond_buried", Block::DiamondOre, Block::DeepslateDiamondOre, 8, 1, count(constant(4)), triangle(-144, 16));
+    addOre("ore_lapis", Block::LapisOre, Block::DeepslateLapisOre, 7, 0, count(constant(2)), triangle(-32, 32));
+    addOre("ore_lapis_buried", Block::LapisOre, Block::DeepslateLapisOre, 7, 1, count(constant(4)), uniform(-64, 64));
+    addOre("ore_copper", Block::CopperOre, Block::DeepslateCopperOre, 10, 0, count(constant(16)), triangle(-16, 112),
+        [](Biome b) { return b != Biome::DripstoneCaves; });
+    addOre("ore_copper_large", Block::CopperOre, Block::DeepslateCopperOre, 20, 0, count(constant(16)), triangle(-16, 112),
+        [](Biome b) { return b == Biome::DripstoneCaves; });
+    addOre("ore_gold_extra", Block::GoldOre, Block::DeepslateGoldOre, 9, 0, count(constant(50)), uniform(32, 256),
+        [](Biome b) { return b == Biome::Badlands || b == Biome::ErodedBadlands || b == Biome::WoodedBadlands; });
+    addOre("ore_emerald", Block::EmeraldOre, Block::DeepslateEmeraldOre, 3, 0, count(constant(100)), triangle(-16, 480),
+        [](Biome b) { return b == Biome::WindsweptHills || b == Biome::WindsweptForest || b == Biome::WindsweptGravellyHills
+            || b == Biome::Meadow || b == Biome::CherryGrove || b == Biome::Grove || b == Biome::SnowySlopes
+            || b == Biome::FrozenPeaks || b == Biome::JaggedPeaks || b == Biome::StonyPeaks; });
+
+    const auto wet = filter([](const FeatureWorld& w, BlockPosition p) { return w.at(p.x, p.y, p.z) == Block::Water; });
+    const auto soil = [](Block b) { return b == Block::Dirt || b == Block::Grass; };
+    features.push_back({"disk_sand", DecorationStep::UndergroundOres, surfaceBiome,
+        {diskFeature([](FeatureContext& c, BlockPosition p) {
+            return c.world.at(p.x, p.y - 1, p.z) == Block::Air ? Block::Sandstone : Block::Sand;
+        }, soil, uniform(2, 6), 2), {count(constant(3)), square(), heightmap(FeatureHeightmap::OceanFloor), wet, biome()}}});
+    features.push_back({"disk_clay", DecorationStep::UndergroundOres, surfaceBiome,
+        {diskFeature(Block::Clay, [](Block b) { return b == Block::Dirt || b == Block::Clay; }, uniform(2, 3), 1),
+         {square(), heightmap(FeatureHeightmap::OceanFloor), wet, biome()}}});
+    features.push_back({"disk_gravel", DecorationStep::UndergroundOres, surfaceBiome,
+        {diskFeature(Block::Gravel, soil, uniform(2, 5), 2), {square(), heightmap(FeatureHeightmap::OceanFloor), wet, biome()}}});
+    features.push_back({"spring_water", DecorationStep::FluidSprings, outsideDeepDark,
+        {springFeature(Block::Water, springRock), {count(constant(25)), square(), heightRange(uniform(-64, 192)), biome()}}});
+    features.push_back({"spring_lava", DecorationStep::FluidSprings, outsideDeepDark,
+        {springFeature(Block::Lava, [](Block b) { return springRock(b) && b != Block::Snow && b != Block::PowderSnow && b != Block::PackedIce; }),
+         {count(constant(20)), square(), heightRange(veryBiasedToBottom(-64, 311, 8)), biome()}}});
+    features.push_back({"trees", DecorationStep::VegetalDecoration, treeBiome,
+        {placeTree, {count(countExtra(10, .1F, 1)), square(), heightmap(FeatureHeightmap::OceanFloor), biome()}}});
+    features.push_back({"freeze_top_layer", DecorationStep::TopLayerModification, everyBiome, {freezeTopLayer, {}}});
+
+    std::vector<BiomeFeatureList> lists(kBiomeCount);
+    for (std::size_t b = 0; b < lists.size(); ++b) for (FeatureId id = 0; id < features.size(); ++id) {
+        if (features[id].registeredIn(static_cast<Biome>(b)))
+            lists[b][static_cast<int>(features[id].step)].push_back(id);
+    }
+    order = sortFeatures(lists);
+}
 
 } // namespace
 
@@ -471,6 +449,7 @@ void decorateChunk(ChunkMap& chunks, const StructureIndex& structures, ChunkPosi
     DecorationRegion region(chunks, chunk, seed);
     const std::vector<StructureReference>& references = structures.references(chunk);
     const BiomeSet present = collectBiomes(chunks, chunk);
+    static const FeatureCatalog catalog;
 
     // Java: `setDecorationSeed`. One seed per chunk, derived from the world
     // seed and the chunk's origin, that every feature below reseeds from.
@@ -488,12 +467,14 @@ void decorateChunk(ChunkMap& chunks, const StructureIndex& structures, ChunkPosi
         for (std::size_t kind = 0; kind < kStructureKindCount; ++kind) {
             const auto structure = static_cast<StructureKind>(kind);
             if (structureStep(structure) != step) continue;
-            random.setFeatureSeed(decorationSeed, indexInStep++, stepOrdinal);
-            for (const StructureReference& reference : references) {
-                if (reference.kind != structure) continue;
-                if (const StructureStart* start = structures.resolve(reference)) {
-                    for (const StructurePiece& piece : start->pieces) {
-                        placePiece(region, piece, chunk);
+            for (StructureVariant variant : structureVariants(structure)) {
+                random.setFeatureSeed(decorationSeed, indexInStep++, stepOrdinal);
+                for (const StructureReference& reference : references) {
+                    if (reference.kind != structure) continue;
+                    if (const StructureStart* start = structures.resolve(reference); start && start->variant == variant) {
+                        for (const StructurePiece& piece : start->pieces) {
+                            placePiece(region, piece, chunk);
+                        }
                     }
                 }
             }
@@ -502,12 +483,13 @@ void decorateChunk(ChunkMap& chunks, const StructureIndex& structures, ChunkPosi
         // Then biome decoration, indexed the same way: a feature no nearby
         // biome registers still consumes its index, it just does not run.
         indexInStep = 0;
-        for (const FeatureDefinition& feature : kFeatures) {
-            if (feature.step != step) continue;
+        for (FeatureId id : catalog.order[stepOrdinal]) {
+            const auto& feature = catalog.features[id];
             const int index = indexInStep++;
             if (!anyBiome(present, feature.registeredIn)) continue;
             random.setFeatureSeed(decorationSeed, index, stepOrdinal);
-            feature.place(region, random, chunk);
+            FeatureContext context{region, random, feature.registeredIn};
+            (void)feature.placed.place(context, {originX, TerrainChunk::minY, originZ});
         }
     }
 }

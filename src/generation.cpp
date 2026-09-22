@@ -18,6 +18,7 @@
 // seam between them is `generation_internal.hpp`.
 
 #include "generation_internal.hpp"
+#include "mcworld/structure_templates.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -231,6 +232,7 @@ public:
     Impl(const OverworldNoiseRouter& router, GenerationOptions options)
         : router_(router), options_(std::move(options)) {
         if (!options_.terrain.biomes) options_.terrain.biomes = std::make_shared<BiomeSource>();
+        if (options_.templates) options_.templates->validate();
     }
 
     GeneratedArea generateArea(int firstX, int firstZ, int width, int depth) {
@@ -244,7 +246,7 @@ public:
         // entirely rather than adding a zero ~98k times.
         detail::ChunkMap chunks;
         forEachChunk(plan.terrain, [&](ChunkPosition chunk) {
-            const detail::ChunkBeardifier beardifier(structures, structures.references(chunk));
+            const detail::ChunkBeardifier beardifier(structures, structures.references(chunk), chunk);
             chunks.emplace(chunk, beardifier.empty()
                 ? terrain.generate(chunk.x, chunk.z)
                 : terrain.generate(chunk.x, chunk.z, beardifier));
@@ -275,7 +277,7 @@ private:
     // long-lived generator does not accumulate every chunk it was ever asked
     // about.
     [[nodiscard]] detail::StructureIndex makeStructureIndex() const {
-        return detail::StructureIndex(router_, *options_.terrain.biomes, options_.structures);
+        return detail::StructureIndex(router_, *options_.terrain.biomes, options_.structures, options_.templates.get());
     }
 
     [[nodiscard]] static GeneratedArea harvest(

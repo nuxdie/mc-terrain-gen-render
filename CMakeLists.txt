@@ -19,7 +19,10 @@ add_library(mcworld
     src/carvers.cpp
     src/generation.cpp
     src/structures.cpp
+    src/structure_templates.cpp
     src/decoration.cpp
+    src/feature_placement.cpp
+    src/features.cpp
 )
 add_library(mcworld::mcworld ALIAS mcworld)
 

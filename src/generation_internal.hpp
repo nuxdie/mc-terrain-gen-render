@@ -27,6 +27,8 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <functional>
+#include <optional>
 #include <vector>
 
 namespace mcworld::detail {
@@ -87,7 +89,8 @@ constexpr int kReferenceRadius = 8;
 // memo lives and dies with the instance, which is what bounds its size.
 class StructureIndex {
 public:
-    StructureIndex(const OverworldNoiseRouter& router, const BiomeSource& biomes, bool enabled);
+    StructureIndex(const OverworldNoiseRouter& router, const BiomeSource& biomes, bool enabled,
+                   const StructureTemplateCatalog* templates = nullptr);
 
     [[nodiscard]] std::int64_t seed() const;
 
@@ -107,6 +110,7 @@ private:
     const OverworldNoiseRouter* router_;
     const BiomeSource* biomes_;
     bool enabled_;
+    const StructureTemplateCatalog* templates_;
     mutable std::map<ChunkPosition, std::vector<StructureStart>> starts_;
     mutable std::map<ChunkPosition, std::vector<StructureReference>> references_;
 };
@@ -118,11 +122,12 @@ private:
 // per-block branch when no referenced start adapts terrain.
 class ChunkBeardifier final : public Beardifier {
 public:
-    ChunkBeardifier(const StructureIndex& index, const std::vector<StructureReference>& references);
+    ChunkBeardifier(const StructureIndex& index, const std::vector<StructureReference>& references, ChunkPosition target);
+    ChunkBeardifier(const std::vector<StructureStart>& starts, ChunkPosition target);
 
     [[nodiscard]] float sample(double x, double y, double z) const override;
 
-    [[nodiscard]] bool empty() const noexcept { return adaptations_.empty(); }
+    [[nodiscard]] bool empty() const noexcept { return adaptations_.empty() && junctions_.empty(); }
 
 private:
     // Only these three fields of a piece affect density; the piece's block and
@@ -134,6 +139,8 @@ private:
     };
 
     std::vector<Adaptation> adaptations_;
+    std::vector<JigsawJunction> junctions_;
+    void collect(const StructureStart& start, ChunkPosition target);
 };
 
 // Java: `Beardifier.getBeardContribution` for one piece offset. Separate from
@@ -147,6 +154,14 @@ private:
 // position among those sharing its step is therefore its index for
 // `WorldgenRandom::setFeatureSeed`.
 [[nodiscard]] DecorationStep structureStep(StructureKind kind);
+[[nodiscard]] const std::vector<StructureVariant>& structureVariants(StructureKind kind);
+[[nodiscard]] int selectWeightedStructure(const std::vector<int>& weights, LegacyRandom& random,
+                                         const std::function<bool(std::size_t)>& generate);
+[[nodiscard]] std::vector<StructurePiece> assembleJigsaw(
+    const StructureTemplateCatalog& catalog, StructureVariant variant, BlockPosition origin,
+    LegacyRandom& random, const std::function<int(int, int)>& surfaceHeight);
+[[nodiscard]] std::optional<Block> processStructureBlock(
+    const StructureBlock& block, Block existing, const std::vector<TemplateProcessor>& processors);
 
 // --- Stage 8: features -----------------------------------------------------
 
@@ -165,7 +180,7 @@ void decorateChunk(ChunkMap& chunks, const StructureIndex& structures, ChunkPosi
 // MiscOverworldFeatures.SPRING_WATER, restricted to our material palette.
 [[nodiscard]] inline bool springRock(Block block) {
     using enum Block;
-    return block == Stone || block == Granite || block == Deepslate || block == Tuff
+    return block == Stone || block == Granite || block == Diorite || block == Andesite || block == Deepslate || block == Tuff
         || block == Calcite || block == Dirt || block == Snow || block == PowderSnow
         || block == PackedIce;
 }

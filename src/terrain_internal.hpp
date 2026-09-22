@@ -130,6 +130,8 @@ using BlockBiomeGetter = std::function<Biome(int, int, int)>;
 // Java: `Biome.TemperatureModifier.FROZEN` above sea level. Warm spots inside a
 // frozen ocean melt icebergs down by two blocks.
 [[nodiscard]] bool meltsFrozenOceanIceberg(Biome biome, int x, int z);
+[[nodiscard]] float biomeTemperature(Biome biome, int x, int y, int z);
+[[nodiscard]] bool biomeHasPrecipitation(Biome biome);
 
 // --- Heightmaps ------------------------------------------------------------
 

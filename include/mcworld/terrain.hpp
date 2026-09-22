@@ -22,7 +22,10 @@ enum class Block : std::uint8_t {
     CopperOre, RawCopper, Granite, DeepslateIronOre, RawIron, Tuff, Sulfur, Cinnabar,
     YellowTerracotta, BrownTerracotta, RedTerracotta, LightGrayTerracotta,
     CoalOre, IronOre, GoldOre, RedstoneOre, DiamondOre, LapisOre, Clay,
-    OakLog, OakLeaves, OakPlanks, Cobblestone, MossyCobblestone, Bricks
+    OakLog, OakLeaves, OakPlanks, Cobblestone, MossyCobblestone, Bricks,
+    Diorite, Andesite, EmeraldOre, DeepslateCoalOre, DeepslateGoldOre,
+    DeepslateRedstoneOre, DeepslateDiamondOre, DeepslateLapisOre,
+    DeepslateCopperOre, DeepslateEmeraldOre
 };
 
 [[nodiscard]] constexpr bool isFluid(Block block) {

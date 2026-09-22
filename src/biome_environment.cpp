@@ -286,4 +286,45 @@ bool meltsFrozenOceanIceberg(Biome biome, int x, int z) {
     return static_cast<double>(large * 7.0F) + detail.sample(x * .2, z * .2) < .3 && detail.sample(x * .09, z * .09) < .8;
 }
 
+bool biomeHasPrecipitation(Biome biome) {
+    using enum Biome;
+    return biome != Desert && biome != Savanna && biome != SavannaPlateau && biome != WindsweptSavanna
+        && biome != Badlands && biome != ErodedBadlands && biome != WoodedBadlands;
+}
+
+float biomeTemperature(Biome biome, int x, int y, int z) {
+    using enum Biome;
+    float temperature = .5F;
+    switch (biome) {
+    case FrozenPeaks: case JaggedPeaks: temperature = -.7F; break;
+    case SnowyTaiga: temperature = -.5F; break;
+    case SnowySlopes: temperature = -.3F; break;
+    case Grove: temperature = -.2F; break;
+    case SnowyPlains: case IceSpikes: case FrozenRiver: temperature = 0; break;
+    case FrozenOcean: case DeepFrozenOcean:
+        temperature = meltsFrozenOceanIceberg(FrozenOcean, x, z) ? .2F : (biome == FrozenOcean ? 0 : .5F);
+        break;
+    case SnowyBeach: temperature = .05F; break;
+    case StonyShore: case WindsweptHills: case WindsweptForest: case WindsweptGravellyHills: temperature = .2F; break;
+    case Taiga: case OldGrowthSpruceTaiga: temperature = .25F; break;
+    case OldGrowthPineTaiga: temperature = .3F; break;
+    case BirchForest: case OldGrowthBirchForest: case DappledForest: temperature = .6F; break;
+    case Forest: case FlowerForest: case DarkForest: case PaleGarden: temperature = .7F; break;
+    case Plains: case SunflowerPlains: case Beach: case Swamp: case MangroveSwamp:
+    case DripstoneCaves: case SulfurCaves: case DeepDark: temperature = .8F; break;
+    case MushroomFields: temperature = .9F; break;
+    case Jungle: case SparseJungle: case BambooJungle: temperature = .95F; break;
+    case StonyPeaks: temperature = 1; break;
+    case Desert: case Savanna: case SavannaPlateau: case WindsweptSavanna:
+    case Badlands: case ErodedBadlands: case WoodedBadlands: temperature = 2; break;
+    default: break;
+    }
+    if (y > 80) {
+        static const auto noise = [] { LegacyRandom random(1234); return TemperatureSimplex(random); }();
+        const float variation = noise.sample(static_cast<float>(x) / 8.0F, static_cast<float>(z) / 8.0F) * 8.0F;
+        temperature -= (variation + y - 80) * .05F / 40.0F;
+    }
+    return temperature;
+}
+
 } // namespace mcworld::detail

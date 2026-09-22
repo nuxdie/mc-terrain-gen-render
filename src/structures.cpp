@@ -15,6 +15,7 @@
 // full template structures.
 
 #include "generation_internal.hpp"
+#include "mcworld/structure_templates.hpp"
 
 #include <algorithm>
 #include <array>
@@ -107,18 +108,33 @@ static_assert([] {
 
 // --- Biome eligibility -----------------------------------------------------
 
-[[nodiscard]] bool structureBiome(StructureKind kind, Biome biome) {
-    switch (kind) {
-    case StructureKind::Village:
-        // Union of the five HAS_VILLAGE_* tags (including meadow).
-        return biome == Biome::Plains || biome == Biome::Meadow || biome == Biome::Desert
-            || biome == Biome::Savanna || biome == Biome::SnowyPlains || biome == Biome::Taiga;
-    case StructureKind::Mineshaft:
-        return biome != Biome::DeepDark;
-    case StructureKind::RuinedPortal:
-        return biome != Biome::DeepDark;
-    case StructureKind::AncientCity:
-        return biome == Biome::DeepDark;
+bool variantBiome(StructureVariant variant, Biome biome) {
+    using enum StructureVariant;
+    const bool badlands = biome == Biome::Badlands || biome == Biome::ErodedBadlands || biome == Biome::WoodedBadlands;
+    const bool ocean = biome >= Biome::Ocean && biome <= Biome::WarmOcean;
+    const bool jungle = biome == Biome::Jungle || biome == Biome::SparseJungle || biome == Biome::BambooJungle;
+    const bool swamp = biome == Biome::Swamp || biome == Biome::MangroveSwamp;
+    const bool mountain = badlands || biome == Biome::WindsweptHills || biome == Biome::WindsweptForest
+        || biome == Biome::WindsweptGravellyHills || biome == Biome::SavannaPlateau || biome == Biome::WindsweptSavanna
+        || biome == Biome::StonyShore || biome == Biome::Meadow || biome == Biome::CherryGrove
+        || biome == Biome::SnowySlopes || biome == Biome::FrozenPeaks || biome == Biome::JaggedPeaks || biome == Biome::StonyPeaks;
+    switch (variant) {
+    case VillagePlains: return biome == Biome::Plains || biome == Biome::Meadow;
+    case VillageDesert: return biome == Biome::Desert;
+    case VillageSavanna: return biome == Biome::Savanna;
+    case VillageSnowy: return biome == Biome::SnowyPlains;
+    case VillageTaiga: return biome == Biome::Taiga;
+    case Mineshaft: return !badlands && biome != Biome::DeepDark;
+    case MineshaftMesa: return badlands;
+    case PortalDesert: return biome == Biome::Desert;
+    case PortalJungle: return jungle;
+    case PortalSwamp: return swamp;
+    case PortalOcean: return ocean;
+    case PortalMountain: return mountain;
+    case PortalStandard: return !ocean && !mountain && !jungle && !swamp && biome != Biome::Desert && biome != Biome::DeepDark;
+    case PortalNether: return false;
+    case AncientCity: return biome == Biome::DeepDark;
+    case Generic: return false;
     }
     return false;
 }
@@ -269,8 +285,43 @@ DecorationStep structureStep(StructureKind kind) {
     return kStructures[static_cast<std::size_t>(kind)].step;
 }
 
-StructureIndex::StructureIndex(const OverworldNoiseRouter& router, const BiomeSource& biomes, bool enabled)
-    : router_(&router), biomes_(&biomes), enabled_(enabled) {}
+const std::vector<StructureVariant>& structureVariants(StructureKind kind) {
+    using enum StructureVariant;
+    static const std::array<std::vector<StructureVariant>, kStructureKindCount> variants{{
+        {VillagePlains, VillageDesert, VillageSavanna, VillageSnowy, VillageTaiga},
+        {Mineshaft, MineshaftMesa},
+        {PortalStandard, PortalDesert, PortalJungle, PortalSwamp, PortalMountain, PortalOcean, PortalNether},
+        {AncientCity}}};
+    return variants.at(static_cast<std::size_t>(kind));
+}
+
+int selectWeightedStructure(const std::vector<int>& weights, LegacyRandom& random,
+                            const std::function<bool(std::size_t)>& generate) {
+    std::vector<std::size_t> candidates;
+    int total = 0;
+    for (std::size_t i = 0; i < weights.size(); ++i) {
+        if (weights[i] <= 0 || weights[i] > std::numeric_limits<int>::max() - total)
+            throw std::invalid_argument("Invalid structure selection weight");
+        total += weights[i];
+        candidates.push_back(i);
+    }
+    // A singleton set takes the direct generation path, consuming no draw.
+    if (candidates.size() == 1) return generate(0) ? 0 : -1;
+    while (!candidates.empty()) {
+        int choice = random.nextInt(total);
+        auto it = candidates.begin();
+        for (; it != candidates.end(); ++it) { choice -= weights[*it]; if (choice < 0) break; }
+        const auto selected = *it;
+        if (generate(selected)) return static_cast<int>(selected);
+        total -= weights[selected];
+        candidates.erase(it);
+    }
+    return -1;
+}
+
+StructureIndex::StructureIndex(const OverworldNoiseRouter& router, const BiomeSource& biomes, bool enabled,
+    const StructureTemplateCatalog* templates)
+    : router_(&router), biomes_(&biomes), enabled_(enabled), templates_(templates) {}
 
 std::int64_t StructureIndex::seed() const {
     return router_->seed();
@@ -292,9 +343,35 @@ const std::vector<StructureStart>& StructureIndex::starts(ChunkPosition chunk) c
             const int y = definition.kind == StructureKind::AncientCity
                 ? kAncientCityY
                 : surfaceY(*router_, centerX, centerZ);
-            if (structureBiome(definition.kind, biomes_->sample(*router_, centerX, y, centerZ))) {
-                result.push_back(makeStart(definition, *router_, chunk));
-            }
+            const Biome biome = biomes_->sample(*router_, centerX, y, centerZ);
+            const auto& variants = structureVariants(definition.kind);
+            auto selectionRandom = largeFeatureRandom(router_->seed(), chunk.x, chunk.z);
+            (void)selectWeightedStructure(std::vector<int>(variants.size(), 1), selectionRandom, [&](std::size_t index) {
+                const auto variant = variants[index];
+                const bool templateStart = templates_ && templates_->starts.contains(variant);
+                if (!templateStart && !variantBiome(variant, biome)) return false;
+                StructureStart start;
+                if (templateStart) {
+                    start.kind = definition.kind;
+                    start.source = chunk;
+                    start.adjustment = definition.adjustment;
+                    start.step = definition.step;
+                    auto random = largeFeatureRandom(router_->seed(), chunk.x, chunk.z);
+                    start.pieces = assembleJigsaw(*templates_, variant, {chunkMinBlock(chunk.x), y, chunkMinBlock(chunk.z)},
+                        random, [&](int x, int z) { return surfaceY(*router_, x, z); });
+                    if (!start.valid()) return false;
+                    const auto& root = start.pieces.front();
+                    const int x = root.bounds.minX + (root.bounds.maxX - root.bounds.minX) / 2;
+                    const int z = root.bounds.minZ + (root.bounds.maxZ - root.bounds.minZ) / 2;
+                    if (!variantBiome(variant, biomes_->sample(*router_, x, root.bounds.minY + root.groundLevelDelta, z))) return false;
+                } else {
+                    start = makeStart(definition, *router_, chunk);
+                }
+                start.variant = variant;
+                if (!start.valid()) return false;
+                result.push_back(std::move(start));
+                return true;
+            });
         }
     }
     return starts_.emplace(chunk, std::move(result)).first->second;
@@ -331,15 +408,32 @@ const StructureStart* StructureIndex::resolve(const StructureReference& referenc
 
 ChunkBeardifier::ChunkBeardifier(
     const StructureIndex& index,
-    const std::vector<StructureReference>& references
+    const std::vector<StructureReference>& references,
+    ChunkPosition target
 ) {
     // Density is accumulated by summing floats, so the order pieces are
     // collected in is part of the result: reference order, then piece order.
     for (const auto& reference : references) {
         const StructureStart* start = index.resolve(reference);
-        if (start == nullptr || start->adjustment == TerrainAdjustment::None) continue;
-        for (const auto& piece : start->pieces) {
-            adaptations_.push_back({piece.bounds, piece.groundLevelDelta, start->adjustment});
+        if (start != nullptr) collect(*start, target);
+    }
+}
+
+ChunkBeardifier::ChunkBeardifier(const std::vector<StructureStart>& starts, ChunkPosition target) {
+    for (const auto& start : starts) collect(start, target);
+}
+
+void ChunkBeardifier::collect(const StructureStart& start, ChunkPosition target) {
+    if (start.adjustment == TerrainAdjustment::None) return;
+    const auto [x, z] = blockOrigin(target);
+    for (const auto& piece : start.pieces) {
+        if (!piece.bounds.inflated(12).intersectsChunk(target.x, target.z)) continue;
+        if (piece.projection != PieceProjection::TerrainMatching)
+            adaptations_.push_back({piece.bounds, piece.projection == PieceProjection::NonPool ? 0 : piece.groundLevelDelta, start.adjustment});
+        if (piece.projection == PieceProjection::NonPool) continue;
+        for (const auto& junction : piece.junctions) {
+            if (junction.sourceX > x - 12 && junction.sourceX < x + 27
+                && junction.sourceZ > z - 12 && junction.sourceZ < z + 27) junctions_.push_back(junction);
         }
     }
 }
@@ -381,6 +475,12 @@ float ChunkBeardifier::sample(double xValue, double yValue, double zValue) const
             break;
         }
         }
+    }
+    for (const auto& junction : junctions_) {
+        const int dx = x - junction.sourceX;
+        const int dy = y - junction.sourceGroundY;
+        const int dz = z - junction.sourceZ;
+        result += structureBeardContribution(dx, dy, dz, dy) * .4F;
     }
     return result;
 }

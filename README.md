@@ -101,8 +101,10 @@ with or endorsed by this project.
 Generation includes:
 
 - Java-seeded random-spread starts for graph-level villages, mineshafts, ruined
-  portals, and ancient cities; radius-8 references; piece bounding boxes; and
-  the 26.3 terrain-adaptation beard kernel before aquifer/material evaluation.
+  portals, and ancient cities, with weighted biome-eligible variant retries;
+  radius-8 references; adjusted piece bounds; and terrain-adaptation density.
+  Optional template catalogs add rotated pool assembly, fallback pools, rigid
+  and terrain-matching projections, processors, and jigsaw-junction density.
 - Standard Overworld climate-interval lookup and 4×4×4 biome cells per section,
   including dappled forest, sulfur caves, and deep dark. Materials use Minecraft's
   SHA-256-seeded, jittered block-biome zoom, including neighboring quart cells.
@@ -115,9 +117,12 @@ Generation includes:
   neighborhood, followed by aquifer-aware carving and exposed-soil repair.
 - Final world-surface, ocean-floor, and motion-blocking heightmaps.
 - The eleven decoration stages in ordinal order, with referenced structure
-  pieces before a stable biome-selected catalog of clay disks, ores, springs,
-  trees, freezing, and snow. Features write through a mutable 3×3 region and
-  maintain all four heightmaps as they modify center or neighboring chunks.
+  pieces before dependency-sorted biome features. Placement modifiers execute
+  depth-first, including nested features on the same random stream. Ores use
+  the source ellipsoid geometry, standard distributions, deepslate variants,
+  and air-exposure rules. Disks, water/lava springs, oak-like trees, and
+  temperature-adjusted freezing/snow write through a mutable 3×3 region and
+  maintain all four heightmaps.
 
 ## Terrain library API
 
@@ -164,6 +169,14 @@ the FEATURES pass. `OverworldTerrainGenerator::generate()` remains the stable,
 independent stage-7B API; its beardifier overload is the integration seam used
 by `OverworldWorldGenerator`.
 
+`GenerationOptions::templates` accepts an immutable `StructureTemplateCatalog`
+from `<mcworld/structure_templates.hpp>`. It supplies explicit template blocks,
+connectors, weighted pools, fallback IDs, processors, and start pools keyed by
+`StructureVariant`. Catalogs are validated when constructing the generator.
+Configured variants use assembled templates instead of procedural boxes; missing
+template IDs in a configured pool are errors. Minecraft's NBT assets are not
+bundled or automatically imported. See the [stage-5/8 implementation notes](STRUCTURES_FEATURES_AUDIT.md).
+
 ### Compatibility boundaries
 
 This remains a graph-level implementation, not a vanilla parity claim:
@@ -184,12 +197,14 @@ This remains a graph-level implementation, not a vanilla parity claim:
 - This generator covers new, normal Overworld chunks. Saved-world retrogen,
   carving blend filters, other dimensions, custom data-pack rule compilation,
   lighting, a chunk-status scheduler, and persistence are outside this API.
-- Stage 5/8 content is deliberately graph-level: the four procedural structure
-  families and bounded feature catalog exercise placement, references,
-  beardification, stage ordering, seeding, biome union, and neighbor writes.
-  It does not include all vanilla structure sets, template NBT/jigsaw pools,
-  FeatureSorter data, the complete placed-feature/modifier graph, block states,
-  or side effects such as block entities, loot, POI, entities, and scheduled ticks.
+- Stage 5/8 execution now includes weighted variant selection, a template/pool
+  engine, FeatureSorter, and a modifier executor, but content coverage is still
+  incomplete. Unconfigured structures retain procedural boxes. Vanilla template
+  NBT/pool catalogs, all structure families, full biome feature lists, every
+  feature/modifier/processor type, and structure-specific hooks are not present.
+  Pool aliases, expansion hacks, liquid settings, and full block states also
+  remain unsupported. The current catalog's feature indices differ from vanilla.
+  Block entities, loot, POI, entities, and scheduled ticks remain unimplemented.
 
 See [the stages 6/7B source audit](WORLDGEN_AUDIT.md) for corrections, reference
 test coverage, and the distinction between algorithm checks and full-world parity.
@@ -234,7 +249,10 @@ highest generated surface, with framing scaled to the area size.
 | `carvers.cpp` | Source-seeded cave/canyon masks and mask application. |
 | `generation_internal.hpp` | The seam between the stage-5 and stage-8 halves; not part of the public API. |
 | `structures.cpp` | Stage 5: structure placement, starts, references, and beardification. |
+| `structure_templates.cpp` | Validated template catalogs, pool assembly, rotations, junctions, and material processors. |
 | `decoration.cpp` | Stage 8: the 3x3 write region, structure pieces, and the feature catalog. |
+| `feature_placement.cpp` | FeatureSorter, depth-first modifiers, integer providers, and nested feature execution. |
+| `features.cpp` | Ore ellipsoids, disks/state providers, and spring algorithms. |
 | `generation.cpp` | Stage 5/8 pass orchestration, area planning, and the shared value types. |
 
 Generation is float arithmetic, so it is sensitive in ways ordinary code is
@@ -266,7 +284,10 @@ fixtures. The separate
 
 `tests/generation_tests.cpp` covers structure starts/references, disabled paths,
 structure biome eligibility, Java beard-kernel fixtures, spring placement rules,
-terrain adaptation, decoration output, and live feature heightmaps.
+terrain adaptation, decoration output, and live feature heightmaps. It also tests
+the feature dependency graph, depth-first/nested RNG consumption, Java-derived
+ore masks, weighted variant retries, template pool assembly/placement, processors,
+and jigsaw-junction density.
 
 The smooth and voxel views are two presentations of the same finalized stage
 5-through-8 block result. The standalone `buildChunkIsosurface` API remains

@@ -248,6 +248,16 @@ private:
     case Cobblestone: return Tile::Stone;
     case MossyCobblestone: return Tile::PodzolSide;
     case Bricks: return Tile::RedTerracotta;
+    case Diorite: return Tile::Calcite;
+    case Andesite: return Tile::Stone;
+    case EmeraldOre: return Tile::GrassTop;
+    case DeepslateCoalOre: return Tile::Deepslate;
+    case DeepslateGoldOre: return Tile::YellowTerracotta;
+    case DeepslateRedstoneOre: return Tile::RedTerracotta;
+    case DeepslateDiamondOre: return Tile::Calcite;
+    case DeepslateLapisOre: return Tile::PackedIce;
+    case DeepslateCopperOre: return Tile::CopperOre;
+    case DeepslateEmeraldOre: return Tile::GrassTop;
     }
     return Tile::Stone;
 }
