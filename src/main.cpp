@@ -1,5 +1,5 @@
 // Interactive viewer for generated Minecraft 26.3 Overworld terrain. It runs
-// stages 6, 7A and 7B, then presents the final blocks as a smooth surface mesh
+// stages 5 through 8, then presents the final blocks as a smooth surface mesh
 // or exposed voxel faces.
 
 #include "mcworld/worldgen.hpp"
@@ -29,6 +29,7 @@ struct Options {
     int chunks{8};
     bool headless{false};
     bool voxel{false};
+    bool terrainOnly{false};
 };
 
 // --- Command line ----------------------------------------------------------
@@ -45,11 +46,12 @@ Number parseNumber(std::string_view text, std::string_view option) {
 
 void printUsage(const char* executable) {
     std::cout
-        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--chunks N] [--voxel] [--headless]\n"
+        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--chunks N] [--voxel] [--terrain-only] [--headless]\n"
         << "\n"
         << "Renders Minecraft 26.3 standard Overworld terrain as a smooth mesh or voxel blocks.\n"
         << "--chunks N: N x N area around the selected chunk (default 8, range 1..16).\n"
         << "--voxel: start in voxel mode; with --headless, also build the voxel mesh.\n"
+        << "--terrain-only: skip structure and feature finalization.\n"
         << "WASD + mouse: fly; Space/Ctrl: up/down; Shift: 4x speed.\n";
 }
 
@@ -67,6 +69,10 @@ Options parseOptions(int argc, char** argv) {
         }
         if (argument == "--voxel") {
             options.voxel = true;
+            continue;
+        }
+        if (argument == "--terrain-only") {
+            options.terrainOnly = true;
             continue;
         }
         if (i + 1 >= argc) {
@@ -187,8 +193,12 @@ void drawOverlay(
               32, 111, 16, {132, 151, 166, 255});
     DrawText(
         faithfulTextures
-            ? "Space/Ctrl: up/down | Faithful 32x textures | Stage 6 + 7A/7B terrain"
-            : "Space/Ctrl: up/down | Generated fallback textures | Stage 6 + 7A/7B terrain",
+            ? (options.terrainOnly
+                ? "Space/Ctrl: up/down | Faithful 32x textures | Stage 6 + 7A/7B terrain"
+                : "Space/Ctrl: up/down | Faithful 32x textures | Stages 5-8 worldgen")
+            : (options.terrainOnly
+                ? "Space/Ctrl: up/down | Generated fallback textures | Stage 6 + 7A/7B terrain"
+                : "Space/Ctrl: up/down | Generated fallback textures | Stages 5-8 worldgen"),
         32, 134, 14, {117, 148, 139, 255}
     );
     DrawFPS(GetScreenWidth() - 96, 20);
@@ -277,6 +287,13 @@ int main(int argc, char** argv) {
         viewer::VoxelTerrain terrain(router);
 
         const auto started = std::chrono::steady_clock::now();
+        const int firstChunkX = options.chunkX - options.chunks / 2;
+        const int firstChunkZ = options.chunkZ - options.chunks / 2;
+        // Mesh extraction reads one neighboring chunk. Finalize that halo in a
+        // single area so stage-8 writes crossing the visible edge are present.
+        if (!options.terrainOnly) {
+            terrain.prepareArea(firstChunkX - 1, firstChunkZ - 1, options.chunks + 2, options.chunks + 2);
+        }
         const viewer::SmoothTerrainMesh surface =
             buildArea<viewer::SmoothTerrainMesh>(options, [&](int x, int z) {
                 return terrain.buildSmoothMesh(x, z);

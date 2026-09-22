@@ -17,6 +17,7 @@ add_library(mcworld
     src/aquifer.cpp
     src/materials.cpp
     src/carvers.cpp
+    src/generation.cpp
 )
 add_library(mcworld::mcworld ALIAS mcworld)
 
@@ -106,17 +107,22 @@ if(MCWORLD_BUILD_TESTS)
     target_link_libraries(terrain_tests PRIVATE mcworld::mcworld)
     target_include_directories(terrain_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME terrain_tests COMMAND terrain_tests)
+    add_executable(generation_tests tests/generation_tests.cpp)
+    target_compile_features(generation_tests PRIVATE cxx_std_20)
+    target_link_libraries(generation_tests PRIVATE mcworld::mcworld)
+    target_include_directories(generation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME generation_tests COMMAND generation_tests)
     if(MCWORLD_BUILD_VIEWER)
         add_executable(viewer_mesh_tests tests/viewer_mesh_tests.cpp src/voxel_renderer.cpp)
         target_compile_features(viewer_mesh_tests PRIVATE cxx_std_20)
         target_include_directories(viewer_mesh_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
         target_link_libraries(viewer_mesh_tests PRIVATE mcworld::mcworld raylib)
         add_test(NAME viewer_mesh_tests COMMAND viewer_mesh_tests)
-        add_test(NAME viewer_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 1 --headless)
+        add_test(NAME viewer_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 1 --terrain-only --headless)
         set_tests_properties(viewer_headless PROPERTIES
             PASS_REGULAR_EXPRESSION "mesh_triangles=[1-9][0-9]*"
         )
-        add_test(NAME viewer_voxel_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 2 --voxel --headless)
+        add_test(NAME viewer_voxel_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 2 --voxel --terrain-only --headless)
         set_tests_properties(viewer_voxel_headless PROPERTIES
             PASS_REGULAR_EXPRESSION "solid_blocks=[1-9][0-9]* water_blocks=[0-9]+ lava_blocks=[0-9]+ voxel_faces=[1-9][0-9]*"
         )

@@ -69,6 +69,7 @@ void TerrainChunk::primeHeightmaps() {
     worldSurface.fill(minY);
     oceanFloor.fill(minY);
     motionBlocking.fill(minY);
+    motionBlockingNoLeaves.fill(minY);
     for (int z = 0; z < width; ++z) {
         for (int x = 0; x < width; ++x) {
             const int column = z * width + x;
@@ -85,10 +86,13 @@ void TerrainChunk::primeHeightmaps() {
                 if ((blocksMotion(block) || isFluid(block)) && motionBlocking[column] == minY) {
                     motionBlocking[column] = y + 1;
                 }
+                if (((blocksMotion(block) && !isLeaves(block)) || isFluid(block))
+                    && motionBlockingNoLeaves[column] == minY) {
+                    motionBlockingNoLeaves[column] = y + 1;
+                }
             }
         }
     }
-    motionBlockingNoLeaves = motionBlocking; // No leaf states in the terrain palette.
 }
 
 Biome BiomeSource::sample(const OverworldNoiseRouter& router, int x, int y, int z) const {
@@ -106,7 +110,7 @@ public:
         }
     }
 
-    TerrainChunk generate(int chunkX, int chunkZ) {
+    TerrainChunk generate(int chunkX, int chunkZ, const Beardifier* structures = nullptr) {
         const int originX = checkedOrigin(chunkX);
         const int originZ = checkedOrigin(chunkZ);
 
@@ -119,7 +123,7 @@ public:
         // The aquifer is shared with the carvers below: both passes have to
         // agree on which fluid body a position belongs to.
         detail::Aquifer aquifer(router_, options_.aquifers);
-        fillDensity(chunk, aquifer, originX, originZ);
+        fillDensity(chunk, aquifer, originX, originZ, structures);
         chunk.primeHeightmaps();
 
         detail::buildMaterials(chunk, router_, options_.oreVeins,
@@ -162,11 +166,20 @@ private:
 
     // Java: `NoiseBasedChunkGenerator.fillFromNoise`. Sample the final density
     // at every block and let the aquifer turn it into a block.
-    void fillDensity(TerrainChunk& chunk, detail::Aquifer& aquifer, int originX, int originZ) const {
+    void fillDensity(
+        TerrainChunk& chunk,
+        detail::Aquifer& aquifer,
+        int originX,
+        int originZ,
+        const Beardifier* structures
+    ) const {
         for (int z = 0; z < TerrainChunk::width; ++z) {
             for (int x = 0; x < TerrainChunk::width; ++x) {
                 for (int y = TerrainChunk::maxY - 1; y >= TerrainChunk::minY; --y) {
-                    const float density = router_.sampleFinalDensity(originX + x, y, originZ + z);
+                    float density = router_.sampleFinalDensity(originX + x, y, originZ + z);
+                    if (structures != nullptr) {
+                        density += structures->sample(originX + x, y, originZ + z);
+                    }
                     const detail::Substance substance = aquifer.sample(originX + x, y, originZ + z, density);
                     chunk.set(x, y, z, substance.block);
                     if (substance.schedule && isFluid(substance.block)) {
@@ -201,6 +214,10 @@ OverworldTerrainGenerator& OverworldTerrainGenerator::operator=(OverworldTerrain
 
 TerrainChunk OverworldTerrainGenerator::generate(int chunkX, int chunkZ) {
     return impl_->generate(chunkX, chunkZ);
+}
+
+TerrainChunk OverworldTerrainGenerator::generate(int chunkX, int chunkZ, const Beardifier& structures) {
+    return impl_->generate(chunkX, chunkZ, &structures);
 }
 
 } // namespace mcworld

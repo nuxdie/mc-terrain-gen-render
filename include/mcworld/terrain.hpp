@@ -12,15 +12,17 @@
 
 namespace mcworld {
 
-// The terrain material palette. This is not the full block-state registry:
-// it covers what the density fill, the material rules and the carvers can
-// produce, which is everything terrain generation needs.
+// The generated-world material palette. This is not the full block-state
+// registry: stage 8 plants and structure blocks are represented by their base
+// material, without orientation, age, waterlogging or block-entity data.
 enum class Block : std::uint8_t {
     Air, Stone, Water, Lava, Bedrock, Deepslate, Grass, Dirt, Sand, Sandstone,
     RedSand, RedSandstone, Gravel, Terracotta, WhiteTerracotta, OrangeTerracotta,
     Podzol, CoarseDirt, Mycelium, Mud, Snow, PowderSnow, Ice, PackedIce, Calcite,
     CopperOre, RawCopper, Granite, DeepslateIronOre, RawIron, Tuff, Sulfur, Cinnabar,
-    YellowTerracotta, BrownTerracotta, RedTerracotta, LightGrayTerracotta
+    YellowTerracotta, BrownTerracotta, RedTerracotta, LightGrayTerracotta,
+    CoalOre, IronOre, GoldOre, RedstoneOre, DiamondOre, LapisOre, Clay,
+    OakLog, OakLeaves, OakPlanks, Cobblestone, MossyCobblestone, Bricks
 };
 
 [[nodiscard]] constexpr bool isFluid(Block block) {
@@ -29,6 +31,10 @@ enum class Block : std::uint8_t {
 
 [[nodiscard]] constexpr bool isSolid(Block block) {
     return block != Block::Air && !isFluid(block);
+}
+
+[[nodiscard]] constexpr bool isLeaves(Block block) {
+    return block == Block::OakLeaves;
 }
 
 // The 26.3 `BLOCKS_MOTION_IN_HEIGHTMAP` tag excludes powder snow.
@@ -115,6 +121,11 @@ public:
 
     // Generating a chunk never depends on which chunks were generated before.
     [[nodiscard]] TerrainChunk generate(int chunkX, int chunkZ);
+
+    // Stage 5 terrain adaptation is chunk-specific. This overload adds its
+    // beard density at the same final-density graph point as the router's own
+    // injected Beardifier, without changing the terrain-only API above.
+    [[nodiscard]] TerrainChunk generate(int chunkX, int chunkZ, const Beardifier& structures);
 
 private:
     class Impl;

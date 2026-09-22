@@ -96,12 +96,12 @@ still **not a seed-compatible or bit-identical Minecraft implementation**:
    component fixtures establish agreement for their tested inputs, not a proof
    for every seed, coordinate, compiler and platform.
 4. Saved-world biome/height/density/carving blending and below-zero retrogen,
-   structure-reference resolution, other dimensions/generators, and custom
-   data-pack compilation are outside the current API. Density blend/beardifier
-   inputs remain injectable. Stage 8 decoration and subsequent stages are also
-   outside this terrain implementation.
-5. The block palette represents terrain materials rather than the full block
-   state registry. Fluid post-processing is queued, not simulated.
+   other dimensions/generators, and custom data-pack compilation are outside
+   the current API. Density blend/beardifier inputs remain injectable. The later
+   graph-level stage 5/8 implementation in `src/generation.cpp` is outside this
+   density/terrain audit; see README for its bounded content catalog.
+5. The block palette represents generated base materials rather than the full
+   block-state registry. Fluid post-processing is queued, not simulated.
 
 An end-to-end parity claim would require replacing the existing seed/noise
 convention, resolving biome traversal semantics, and comparing full Java and C++

@@ -9,7 +9,7 @@
 ## Code Boundaries
 
 - `mcworld` is the reusable C++20 library. Its public API is only under `include/mcworld/`; implementation-only noise, spline, density graph, and meshing code is under `src/`. `src/main.cpp` is the Raylib viewer, not a library entrypoint.
-- The implementation covers the Overworld 7A density graph and graph-level new-world 7B terrain: biome lookup, aquifers, materials, carvers, and heightmaps. Read README compatibility boundaries before claiming vanilla parity. Decoration, lighting, retrogen, and other dimensions are not implemented.
+- The implementation covers graph-level Overworld stages 5 through 8: procedural structure starts/references and beardification, biome lookup, the 7A density graph, 7B terrain, and a bounded decoration catalog. Read README compatibility boundaries before claiming vanilla parity. Full template structures/features, lighting, retrogen, and other dimensions are not implemented.
 - Isosurface vertices use chunk-local X/Z but world Y. Extraction samples a one-block halo for normals and intentionally leaves chunk boundaries open.
 - `mc-26.3-source/`, when present, is an ignored, generated decompilation used only to audit the port. It requires Java 25 to regenerate and must not be committed or redistributed.
 

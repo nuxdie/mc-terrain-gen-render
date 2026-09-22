@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mcworld/terrain.hpp"
+#include "mcworld/generation.hpp"
 
 #include <raylib.h>
 
@@ -49,7 +49,12 @@ struct TerrainTextureAtlas {
 // Reuses generated chunks, including the border needed for neighbor visibility.
 class VoxelTerrain {
 public:
-    explicit VoxelTerrain(const mcworld::OverworldNoiseRouter& router) : router_(router), generator_(router) {}
+    explicit VoxelTerrain(const mcworld::OverworldNoiseRouter& router)
+        : router_(router), worldGenerator_(router), terrainGenerator_(router) {}
+
+    // Finalize requested chunks together so incoming radius-1 feature writes
+    // are applied in one canonical decoration order.
+    void prepareArea(int firstChunkX, int firstChunkZ, int width, int depth);
 
     [[nodiscard]] SmoothTerrainMesh buildSmoothMesh(int chunkX, int chunkZ);
     [[nodiscard]] VoxelMesh buildMesh(int chunkX, int chunkZ);
@@ -58,7 +63,10 @@ private:
     [[nodiscard]] const mcworld::TerrainChunk& chunk(int x, int z);
 
     const mcworld::OverworldNoiseRouter& router_;
-    mcworld::OverworldTerrainGenerator generator_;
+    mcworld::OverworldWorldGenerator worldGenerator_;
+    // Isolated mesh callers retain the cheap stage-7B fallback. The viewer
+    // application calls prepareArea() before meshing finalized stage-8 chunks.
+    mcworld::OverworldTerrainGenerator terrainGenerator_;
     std::map<std::pair<int, int>, mcworld::TerrainChunk> chunks_;
 };
 

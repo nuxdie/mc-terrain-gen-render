@@ -235,6 +235,19 @@ private:
     case BrownTerracotta: return Tile::BrownTerracotta;
     case RedTerracotta: return Tile::RedTerracotta;
     case LightGrayTerracotta: return Tile::LightGrayTerracotta;
+    case CoalOre: return Tile::Stone;
+    case IronOre: return Tile::CopperOre;
+    case GoldOre: return Tile::YellowTerracotta;
+    case RedstoneOre: return Tile::RedTerracotta;
+    case DiamondOre: return Tile::Calcite;
+    case LapisOre: return Tile::PackedIce;
+    case Clay: return Tile::LightGrayTerracotta;
+    case OakLog: return Tile::BrownTerracotta;
+    case OakLeaves: return Tile::GrassTop;
+    case OakPlanks: return Tile::BrownTerracotta;
+    case Cobblestone: return Tile::Stone;
+    case MossyCobblestone: return Tile::PodzolSide;
+    case Bricks: return Tile::RedTerracotta;
     }
     return Tile::Stone;
 }
@@ -595,9 +608,17 @@ const mcworld::TerrainChunk& VoxelTerrain::chunk(int x, int z) {
     const auto key = std::pair{x, z};
     auto it = chunks_.find(key);
     if (it == chunks_.end()) {
-        it = chunks_.emplace(key, generator_.generate(x, z)).first;
+        it = chunks_.emplace(key, terrainGenerator_.generate(x, z)).first;
     }
     return it->second;
+}
+
+void VoxelTerrain::prepareArea(int firstChunkX, int firstChunkZ, int width, int depth) {
+    auto area = worldGenerator_.generateArea(firstChunkX, firstChunkZ, width, depth);
+    for (auto& generated : area.chunks) {
+        const auto key = std::pair{generated.terrain.chunkX, generated.terrain.chunkZ};
+        chunks_.insert_or_assign(key, std::move(generated.terrain));
+    }
 }
 
 SmoothTerrainMesh VoxelTerrain::buildSmoothMesh(int chunkX, int chunkZ) {

@@ -1,7 +1,7 @@
 # Minecraft 26.3 Overworld terrain viewer
 
-A C++20 implementation of the standard Overworld biome lookup (6), density
-graph (7A), and new-world terrain pipeline (7B) in
+A C++20 graph-level implementation of Overworld structure starts/references (5),
+biome lookup (6), density and terrain generation (7A/7B), and decoration (8) in
 `minecraft-26.3-worldgen.dot`. The Raylib viewer displays an 8×8 chunk area as
 either a smooth mesh of the generated terrain or generated voxel blocks.
 
@@ -55,6 +55,9 @@ Use `--voxel` to start in the block-style view:
 ./build/terrain_viewer --seed 12345 --chunk-x 0 --chunk-z 0 --voxel
 ```
 
+Structure/feature finalization needs a two-chunk dependency halo beyond the
+visible area. Use `--terrain-only` for the faster independent stage-7B path.
+
 Controls:
 
 - `WASD` and mouse: free camera at 40 blocks/second
@@ -97,6 +100,9 @@ with or endorsed by this project.
 
 Generation includes:
 
+- Java-seeded random-spread starts for graph-level villages, mineshafts, ruined
+  portals, and ancient cities; radius-8 references; piece bounding boxes; and
+  the 26.3 terrain-adaptation beard kernel before aquifer/material evaluation.
 - Standard Overworld climate-interval lookup and 4×4×4 biome cells per section,
   including dappled forest, sulfur caves, and deep dark. Materials use Minecraft's
   SHA-256-seeded, jittered block-biome zoom, including neighboring quart cells.
@@ -108,6 +114,10 @@ Generation includes:
 - Cave, extra-underground cave, and canyon masks from the radius-8 source-chunk
   neighborhood, followed by aquifer-aware carving and exposed-soil repair.
 - Final world-surface, ocean-floor, and motion-blocking heightmaps.
+- The eleven decoration stages in ordinal order, with referenced structure
+  pieces before a stable biome-selected catalog of clay disks, ores, springs,
+  trees, freezing, and snow. Features write through a mutable 3×3 region and
+  maintain all four heightmaps as they modify center or neighboring chunks.
 
 ## Terrain library API
 
@@ -134,6 +144,26 @@ for a later simulation stage, not simulated fluid flow.
 reserve room for the carver neighborhood, aquifer probes, and sampling halos;
 out-of-range chunk requests throw `std::invalid_argument`.
 
+For finalized stage-5-through-8 chunks, use the area generator so all feature
+sources in the one-chunk write halo run before chunks are returned:
+
+```cpp
+#include <mcworld/generation.hpp>
+
+mcworld::OverworldNoiseRouter router(12345);
+mcworld::OverworldWorldGenerator generator(router);
+auto area = generator.generateArea(-4, -4, 8, 8);
+const auto& generated = area.at(0, 0);
+auto block = generated.terrain.at(8, 64, 8);
+auto starts = generated.starts;
+auto references = generated.references;
+```
+
+`GenerationOptions` independently controls structure metadata/adaptation and
+the FEATURES pass. `OverworldTerrainGenerator::generate()` remains the stable,
+independent stage-7B API; its beardifier overload is the integration seam used
+by `OverworldWorldGenerator`.
+
 ### Compatibility boundaries
 
 This remains a graph-level implementation, not a vanilla parity claim:
@@ -147,14 +177,19 @@ This remains a graph-level implementation, not a vanilla parity claim:
   lookup-table trigonometry constructed using the host math library.
 - Frozen-ocean temperature adjustment uses Java's fixed-seed simplex noises;
   iceberg geometry still uses the project's world-seeded noise convention.
-- Block IDs describe terrain materials, not the complete block-state registry.
-  Fluids, snow, and ice have no simulation or state properties. Motion heightmaps
-  follow the supported blocks' motion tags, including powder snow's exclusion;
-  there are no leaf states.
+- Block IDs describe generated base materials, not the complete block-state
+  registry. Fluids, snow, leaves, and structure materials have no orientation,
+  simulation, loot, or block-entity state. Motion heightmaps follow the
+  supported blocks' tags, including powder-snow and leaf exclusions.
 - This generator covers new, normal Overworld chunks. Saved-world retrogen,
-  carving blend filters, structure-reference resolution, other dimensions,
-  custom data-pack rule compilation, features/decorations, and lighting are
-  outside this API. There is no chunk-status scheduler or world persistence.
+  carving blend filters, other dimensions, custom data-pack rule compilation,
+  lighting, a chunk-status scheduler, and persistence are outside this API.
+- Stage 5/8 content is deliberately graph-level: the four procedural structure
+  families and bounded feature catalog exercise placement, references,
+  beardification, stage ordering, seeding, biome union, and neighbor writes.
+  It does not include all vanilla structure sets, template NBT/jigsaw pools,
+  FeatureSorter data, the complete placed-feature/modifier graph, block states,
+  or side effects such as block entities, loot, POI, entities, and scheduled ticks.
 
 See [the stages 6/7B source audit](WORLDGEN_AUDIT.md) for corrections, reference
 test coverage, and the distinction between algorithm checks and full-world parity.
@@ -194,6 +229,7 @@ highest generated surface, with framing scaled to the area size.
 | `aquifer.cpp` | Fluid centers, levels, pressure barriers, and update decisions. |
 | `materials.cpp` | Ordered bedrock, vein, surface, and underground rules. |
 | `carvers.cpp` | Source-seeded cave/canyon masks and mask application. |
+| `generation.cpp` | Structure starts/references, beardification, finalized areas, and stage-8 decoration. |
 
 Generation is float arithmetic, so it is sensitive in ways ordinary code is
 not: re-associating a product, widening an intermediate to `double`, renaming a
@@ -215,7 +251,9 @@ Java-derived biome slice, full carving-mask, biome zoom, and iceberg-temperature
 fixtures. The separate
 `terrain_tests` executable can be selected with CTest's `-R '^terrain_tests$'`.
 
-The smooth and voxel views are two presentations of the same stage 6/7A/7B
-terrain result. The standalone `buildChunkIsosurface` API remains available for
-inspecting the raw 7A density field. Step 8 features and decoration are not
-generated.
+`tests/generation_tests.cpp` covers structure starts/references, disabled paths,
+decoration output, and live feature heightmaps.
+
+The smooth and voxel views are two presentations of the same finalized stage
+5-through-8 block result. The standalone `buildChunkIsosurface` API remains
+available for inspecting the raw 7A density field.
