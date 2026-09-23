@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -70,46 +71,82 @@ constexpr float kSurfaceNoiseScale = 8.25F;
     return std::clamp(value, fromMin, fromMax) * factor + offset;
 }
 
-// Trilinear interpolation of a noise over the density graph's own lattice:
-// 4 blocks horizontally, 8 vertically. Samples outside the interpolated Y range
-// fall back to `outside` rather than extrapolating.
-[[nodiscard]] float interpolateNoise(const NormalNoise& noise, int x, int y, int z, double scale, float outside) {
-    constexpr int kCellWidth = 4;
-    constexpr int kCellHeight = 8;
-    constexpr int kLowestCellY = -64;
-    constexpr int kHighestCellY = 56;
+struct NoiseCorner {
+    int x;
+    int y;
+    int z;
+    bool operator==(const NoiseCorner&) const = default;
+};
 
-    const int cellX = floorDiv(x, kCellWidth) * kCellWidth;
-    const int cellY = floorDiv(y, kCellHeight) * kCellHeight;
-    const int cellZ = floorDiv(z, kCellWidth) * kCellWidth;
-    auto corner = [&](int dx, int dy, int dz) {
-        const int sampleY = cellY + dy * kCellHeight;
-        if (sampleY < kLowestCellY || sampleY > kHighestCellY) {
-            return outside;
-        }
-        return noise.sample((cellX + dx * kCellWidth) * scale, sampleY * scale, (cellZ + dz * kCellWidth) * scale);
-    };
-    auto lerp = [](float amount, float from, float to) { return from + amount * (to - from); };
+struct NoiseCornerHash {
+    [[nodiscard]] std::size_t operator()(NoiseCorner corner) const noexcept {
+        std::size_t result = 0;
+        const auto combine = [&](int coordinate) {
+            result ^= std::hash<int>{}(coordinate) + 0x9e3779b9U + (result << 6) + (result >> 2);
+        };
+        combine(corner.x);
+        combine(corner.y);
+        combine(corner.z);
+        return result;
+    }
+};
 
-    const float tx = (x - cellX) / static_cast<float>(kCellWidth);
-    const float ty = (y - cellY) / static_cast<float>(kCellHeight);
-    const float tz = (z - cellZ) / static_cast<float>(kCellWidth);
+// Trilinear interpolation over the density graph's own lattice. Corner values
+// are immutable, so memoizing them avoids resampling the same noise per block.
+class InterpolatedNoise {
+public:
+    InterpolatedNoise(const NormalNoise& noise, double scale, float outside)
+        : noise_(noise), scale_(scale), outside_(outside) {}
 
-    // Match the density lattice's X, then Y, then Z evaluation order.
-    const float c000 = corner(0, 0, 0);
-    const float c100 = corner(1, 0, 0);
-    const float c010 = corner(0, 1, 0);
-    const float c110 = corner(1, 1, 0);
-    const float c001 = corner(0, 0, 1);
-    const float c101 = corner(1, 0, 1);
-    const float c011 = corner(0, 1, 1);
-    const float c111 = corner(1, 1, 1);
-    const float x00 = lerp(tx, c000, c100);
-    const float x10 = lerp(tx, c010, c110);
-    const float x01 = lerp(tx, c001, c101);
-    const float x11 = lerp(tx, c011, c111);
-    return lerp(tz, lerp(ty, x00, x10), lerp(ty, x01, x11));
-}
+    [[nodiscard]] float sample(int x, int y, int z) const {
+        constexpr int kCellWidth = 4;
+        constexpr int kCellHeight = 8;
+        constexpr int kLowestCellY = -64;
+        constexpr int kHighestCellY = 56;
+
+        const int cellX = floorDiv(x, kCellWidth) * kCellWidth;
+        const int cellY = floorDiv(y, kCellHeight) * kCellHeight;
+        const int cellZ = floorDiv(z, kCellWidth) * kCellWidth;
+        auto corner = [&](int dx, int dy, int dz) {
+            const int sampleY = cellY + dy * kCellHeight;
+            if (sampleY < kLowestCellY || sampleY > kHighestCellY) {
+                return outside_;
+            }
+            const NoiseCorner key{cellX + dx * kCellWidth, sampleY, cellZ + dz * kCellWidth};
+            const auto found = corners_.find(key);
+            if (found != corners_.end()) return found->second;
+            const float value = noise_.sample(key.x * scale_, key.y * scale_, key.z * scale_);
+            corners_.emplace(key, value);
+            return value;
+        };
+        auto lerp = [](float amount, float from, float to) { return from + amount * (to - from); };
+
+        const float tx = (x - cellX) / static_cast<float>(kCellWidth);
+        const float ty = (y - cellY) / static_cast<float>(kCellHeight);
+        const float tz = (z - cellZ) / static_cast<float>(kCellWidth);
+
+        // Match the density lattice's X, then Y, then Z evaluation order.
+        const float c000 = corner(0, 0, 0);
+        const float c100 = corner(1, 0, 0);
+        const float c010 = corner(0, 1, 0);
+        const float c110 = corner(1, 1, 0);
+        const float c001 = corner(0, 0, 1);
+        const float c101 = corner(1, 0, 1);
+        const float c011 = corner(0, 1, 1);
+        const float c111 = corner(1, 1, 1);
+        const float x00 = lerp(tx, c000, c100);
+        const float x10 = lerp(tx, c010, c110);
+        const float x01 = lerp(tx, c001, c101);
+        const float x11 = lerp(tx, c011, c111);
+        return lerp(tz, lerp(ty, x00, x10), lerp(ty, x01, x11));
+    }
+
+private:
+    const NormalNoise& noise_;
+    double scale_;
+    float outside_;
+    mutable std::unordered_map<NoiseCorner, float, NoiseCornerHash> corners_;
+};
 
 // --- Noise sets ------------------------------------------------------------
 //
@@ -271,6 +308,9 @@ public:
           biomes_(std::move(biomes)),
           surface_(router.seed()),
           ore_(router.seed()),
+          veininess_(ore_.veininess, 1.5, 0),
+          veinA_(ore_.veinA, 4, 1),
+          veinB_(ore_.veinB, 4, 1),
           biomeSurface_(router.seed()),
           badlands_{{router.seed(), "minecraft:badlands_surface", -6, {1, 1, 1}},
                     {router.seed(), "minecraft:badlands_pillar", -2, {1, 1, 1, 1}},
@@ -448,7 +488,7 @@ private:
             return {};
         }
 
-        const float veininess = interpolateNoise(ore_.veininess, x, y, z, 1.5, 0);
+        const float veininess = veininess_.sample(x, y, z);
         const bool copper = veininess > 0;
         const int minY = copper ? kCopperMinY : kIronMinY;
         const int maxY = copper ? kCopperMaxY : kIronMaxY;
@@ -461,8 +501,8 @@ private:
         if (std::abs(veininess) - .4F + edge < 0) {
             return {};
         }
-        const float veinShape = std::max(std::abs(interpolateNoise(ore_.veinA, x, y, z, 4, 1)),
-                                         std::abs(interpolateNoise(ore_.veinB, x, y, z, 4, 1)));
+        const float veinShape = std::max(std::abs(veinA_.sample(x, y, z)),
+                                         std::abs(veinB_.sample(x, y, z)));
         if (veinShape > .08F) {
             return {};
         }
@@ -927,6 +967,9 @@ private:
     BlockBiomeGetter biomes_;
     SurfaceNoises surface_;
     OreNoises ore_;
+    InterpolatedNoise veininess_;
+    InterpolatedNoise veinA_;
+    InterpolatedNoise veinB_;
     BiomeSurfaceNoises biomeSurface_;
     PillarNoises badlands_;
     PillarNoises iceberg_;
