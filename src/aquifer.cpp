@@ -38,6 +38,13 @@ constexpr int kCenterJitterY = 9;
 constexpr int kCellOffsetXZ = 5;
 constexpr int kCellOffsetY = 1;
 
+// A chunk's block positions can consult three center cells horizontally and
+// this inclusive vertical range. The same cache is reused by carvers.
+constexpr int kCenterCacheWidth = 3;
+constexpr int kFirstCenterY = -7;
+constexpr int kLastCenterY = 27;
+constexpr int kCenterCacheHeight = kLastCenterY - kFirstCenterY + 1;
+
 // Vertical band the fluid-level spread noise is evaluated in, and the step the
 // resulting level snaps to.
 constexpr int kFluidLevelBandHeight = 40;
@@ -69,6 +76,13 @@ Aquifer::Aquifer(const OverworldNoiseRouter& router, bool enabled)
       floodedness_(router.seed(), "minecraft:aquifer_fluid_level_floodedness", -7, {1}),
       spread_(router.seed(), "minecraft:aquifer_fluid_level_spread", -5, {1}),
       lava_(router.seed(), "minecraft:aquifer_lava", -1, {1}) {}
+
+Aquifer::Aquifer(const OverworldNoiseRouter& router, bool enabled, int chunkX, int chunkZ)
+    : Aquifer(router, enabled) {
+    firstCenterX_ = chunkX - 1;
+    firstCenterZ_ = chunkZ - 1;
+    centerCache_.resize(kCenterCacheWidth * kCenterCacheHeight * kCenterCacheWidth);
+}
 
 int Aquifer::surface(int x, int z) {
     x = floorDiv(x, kQuartSize) * kQuartSize;
@@ -140,6 +154,26 @@ Aquifer::Fluid Aquifer::fluid(int x, int y, int z) {
 }
 
 const Aquifer::Center& Aquifer::center(int x, int y, int z) {
+    const int localX = x - firstCenterX_;
+    const int localY = y - kFirstCenterY;
+    const int localZ = z - firstCenterZ_;
+    if (!centerCache_.empty()
+        && localX >= 0 && localX < kCenterCacheWidth
+        && localY >= 0 && localY < kCenterCacheHeight
+        && localZ >= 0 && localZ < kCenterCacheWidth) {
+        auto& cached = centerCache_[static_cast<std::size_t>(
+            (localZ * kCenterCacheWidth + localX) * kCenterCacheHeight + localY
+        )];
+        if (!cached) {
+            LegacyRandom random(positionalSeed(router_.seed(), "minecraft:aquifer", x, y, z));
+            const int blockX = x * kCellWidth + random.nextInt(kCenterJitterXZ);
+            const int blockY = y * kCellHeight + random.nextInt(kCenterJitterY);
+            const int blockZ = z * kCellWidth + random.nextInt(kCenterJitterXZ);
+            cached = Center{blockX, blockY, blockZ, fluid(blockX, blockY, blockZ)};
+        }
+        return *cached;
+    }
+
     const auto key = std::tuple{x, y, z};
     if (const auto found = centers_.find(key); found != centers_.end()) {
         return found->second;

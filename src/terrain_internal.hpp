@@ -24,6 +24,7 @@
 #include <map>
 #include <optional>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace mcworld::detail {
@@ -53,6 +54,7 @@ struct Substance {
 class Aquifer {
 public:
     Aquifer(const OverworldNoiseRouter& router, bool enabled);
+    Aquifer(const OverworldNoiseRouter& router, bool enabled, int chunkX, int chunkZ);
 
     // Java: `computeSubstance`. `density > 0` is solid terrain; everything else
     // resolves to air or to the fluid of the surrounding aquifer.
@@ -77,6 +79,19 @@ private:
         Fluid fluid;
     };
 
+    struct CellHash {
+        [[nodiscard]] std::size_t operator()(const std::tuple<int, int, int>& cell) const noexcept {
+            std::size_t result = 0;
+            const auto combine = [&](int coordinate) {
+                result ^= std::hash<int>{}(coordinate) + 0x9e3779b9U + (result << 6) + (result >> 2);
+            };
+            combine(std::get<0>(cell));
+            combine(std::get<1>(cell));
+            combine(std::get<2>(cell));
+            return result;
+        }
+    };
+
     // Preliminary surface level of the column containing (x, z), quart-aligned.
     int surface(int x, int z);
     // The fluid body that owns a center block.
@@ -93,7 +108,10 @@ private:
     NormalNoise floodedness_;
     NormalNoise spread_;
     NormalNoise lava_;
-    std::map<std::tuple<int, int, int>, Center> centers_;
+    int firstCenterX_{};
+    int firstCenterZ_{};
+    std::vector<std::optional<Center>> centerCache_;
+    std::unordered_map<std::tuple<int, int, int>, Center, CellHash> centers_;
     std::map<std::pair<int, int>, int> surfaces_;
 };
 

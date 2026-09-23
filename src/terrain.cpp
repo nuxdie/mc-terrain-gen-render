@@ -147,7 +147,7 @@ public:
         // The aquifer is shared with the carvers below: both passes have to
         // agree on which fluid body a position belongs to.
         const auto densityStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
-        detail::Aquifer aquifer(router_, options_.aquifers);
+        detail::Aquifer aquifer(router_, options_.aquifers, chunkX, chunkZ);
         fillDensity(chunk, aquifer, originX, originZ, structures);
         if (profile != nullptr) profile->densitySeconds = elapsedSeconds(densityStarted);
 
