@@ -224,6 +224,7 @@ void runViewer(
     double surfaceSeconds,
     double voxelSeconds
 ) {
+    SetTraceLogLevel(LOG_NONE);
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(kWindowWidth, kWindowHeight, "Minecraft 26.3 Overworld terrain");
     if (!IsWindowReady()) {
