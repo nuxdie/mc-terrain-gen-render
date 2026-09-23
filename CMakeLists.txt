@@ -30,11 +30,14 @@ add_library(mcworld
 )
 add_library(mcworld::mcworld ALIAS mcworld)
 
+find_package(Threads REQUIRED)
+
 target_compile_features(mcworld PUBLIC cxx_std_20)
 target_include_directories(mcworld PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 target_include_directories(mcworld PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(mcworld PUBLIC Threads::Threads)
 
 if(MCWORLD_GAME_JAR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -169,5 +172,7 @@ if(MCWORLD_BUILD_TESTS)
         set_tests_properties(viewer_invalid_chunk PROPERTIES WILL_FAIL TRUE)
         add_test(NAME viewer_invalid_area COMMAND terrain_viewer --chunks 0 --headless)
         set_tests_properties(viewer_invalid_area PROPERTIES WILL_FAIL TRUE)
+        add_test(NAME viewer_invalid_threads COMMAND terrain_viewer --threads 0 --headless)
+        set_tests_properties(viewer_invalid_threads PROPERTIES WILL_FAIL TRUE)
     endif()
 endif()

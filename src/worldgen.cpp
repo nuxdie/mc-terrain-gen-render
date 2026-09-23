@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -253,6 +254,21 @@ struct ColumnKeyHash {
     }
 };
 
+struct SampleColumnKey {
+    double x{};
+    double z{};
+
+    bool operator==(const SampleColumnKey&) const = default;
+};
+
+struct SampleColumnKeyHash {
+    std::size_t operator()(const SampleColumnKey& key) const noexcept {
+        const std::size_t x = std::hash<double>{}(key.x);
+        const std::size_t z = std::hash<double>{}(key.z);
+        return x ^ (z + 0x9e3779b9U + (x << 6U) + (x >> 2U));
+    }
+};
+
 // The four correlated noodle-cave values, interpolated together so that the
 // toggle and the ridges it gates stay consistent within a cell.
 struct NoodleSample {
@@ -308,17 +324,32 @@ public:
             return sampled;
         };
 
-        // Corners are bound to locals first: argument evaluation order is
-        // unspecified, and keeping the sampler's call order fixed keeps the
-        // cache-fill sequence reproducible.
-        const Value c000 = corner(x0, y0, z0);
-        const Value c100 = corner(x1, y0, z0);
-        const Value c010 = corner(x0, y1, z0);
-        const Value c110 = corner(x1, y1, z0);
-        const Value c001 = corner(x0, y0, z1);
-        const Value c101 = corner(x1, y0, z1);
-        const Value c011 = corner(x0, y1, z1);
-        const Value c111 = corner(x1, y1, z1);
+        if (!hasCurrentCell_ || x0 != currentX_ || y0 != currentY_ || z0 != currentZ_) {
+            // Keep the original corner order: it fixes the global cache-fill
+            // sequence even though subsequent samples in this cell reuse it.
+            currentCorners_[0] = corner(x0, y0, z0);
+            currentCorners_[1] = corner(x1, y0, z0);
+            currentCorners_[2] = corner(x0, y1, z0);
+            currentCorners_[3] = corner(x1, y1, z0);
+            currentCorners_[4] = corner(x0, y0, z1);
+            currentCorners_[5] = corner(x1, y0, z1);
+            currentCorners_[6] = corner(x0, y1, z1);
+            currentCorners_[7] = corner(x1, y1, z1);
+            currentX_ = x0;
+            currentY_ = y0;
+            currentZ_ = z0;
+            hasCurrentCell_ = true;
+        }
+
+        // Bind copies just as before so interpolation evaluation is unchanged.
+        const Value c000 = currentCorners_[0];
+        const Value c100 = currentCorners_[1];
+        const Value c010 = currentCorners_[2];
+        const Value c110 = currentCorners_[3];
+        const Value c001 = currentCorners_[4];
+        const Value c101 = currentCorners_[5];
+        const Value c011 = currentCorners_[6];
+        const Value c111 = currentCorners_[7];
 
         const Value zLowYLow = blendSamples(tx, c000, c100);
         const Value zLowYHigh = blendSamples(tx, c010, c110);
@@ -335,6 +366,11 @@ private:
     int xzSpacing_;
     int ySpacing_;
     std::unordered_map<GridKey, Value, GridKeyHash> values_;
+    std::array<Value, 8> currentCorners_{};
+    int currentX_{};
+    int currentY_{};
+    int currentZ_{};
+    bool hasCurrentCell_{};
 };
 
 // The 2-D equivalent, for values that vary only per column.
@@ -496,6 +532,14 @@ public:
         return seed_;
     }
 
+    [[nodiscard]] std::shared_ptr<const BlendSampler> blender() const {
+        return blender_;
+    }
+
+    [[nodiscard]] std::shared_ptr<const Beardifier> beardifier() const {
+        return beardifier_;
+    }
+
     [[nodiscard]] RouterSample sample(double x, double y, double z) const {
         // Validate before evaluating any noise or spline with user coordinates,
         // against the coarsest lattices this call will touch. sampleFinalDensity
@@ -509,15 +553,16 @@ public:
         const Terrain terrain = sampleTerrain(x, y, z, climate);
 
         RouterSample result;
-        result.temperature = shiftedNoise(climateNoises_.temperature, x, z);
-        result.vegetation = shiftedNoise(climateNoises_.vegetation, x, z);
+        const ClimateChannels channels = sampleClimateChannels(x, z);
+        result.temperature = channels.temperature;
+        result.vegetation = channels.vegetation;
         result.continentalness = climate.continentalness;
         result.erosion = climate.erosion;
         result.depth = terrain.depth;
         // The router exposes the raw ridge noise: peaksAndValleys() is applied
         // downstream, inside the terrain splines.
         result.ridges = climate.weirdness;
-        result.chunkSurfaceLevel = sampleChunkSurfaceLevel(x, z);
+        result.chunkSurfaceLevel = interpolateChunkSurfaceLevel(x, z);
         result.finalDensity = sampleFinalDensity(x, y, z);
         return result;
     }
@@ -528,27 +573,15 @@ public:
         requireOnGrid(z, kColumnSpacing);
 
         const Climate climate = sampleClimate(x, z);
-        const detail::TerrainPoint splinePoint{
-            climate.continentalness,
-            climate.erosion,
-            climate.weirdness,
-            climate.ridges,
-        };
-
-        // This is the exact sampleTerrain prefix needed for depth. Biome
-        // selection does not consume factor, jaggedness or sloped cheese.
-        const float alpha = blender_->alpha(x, y, z);
-        const float rawOffset = kOffsetBias + splines_.offset->sample(splinePoint);
-        const float offset = lerp(alpha, blender_->offset(x, y, z), rawOffset);
+        const ClimateChannels channels = sampleClimateChannels(x, z);
+        const SurfaceTerrain terrain = sampleSurfaceTerrain(x, y, z, climate);
 
         BiomeClimateSample result;
-        result.temperature = shiftedNoise(climateNoises_.temperature, x, z);
-        result.vegetation = shiftedNoise(climateNoises_.vegetation, x, z);
+        result.temperature = channels.temperature;
+        result.vegetation = channels.vegetation;
         result.continentalness = climate.continentalness;
         result.erosion = climate.erosion;
-        result.depth = clampedGradient(
-            y, kWorldMinY, kWorldMaxY, kDepthAtWorldBottom, kDepthAtWorldTop
-        ) + offset;
+        result.depth = terrain.depth;
         result.ridges = climate.weirdness;
         return result;
     }
@@ -558,6 +591,12 @@ public:
         requireOnGrid(x, kColumnSpacing);
         requireOnGrid(z, kColumnSpacing);
         return preliminarySurface(x, z);
+    }
+
+    [[nodiscard]] float sampleChunkSurfaceLevel(double x, double z) const {
+        requireOnGrid(x, kColumnSpacing);
+        requireOnGrid(z, kColumnSpacing);
+        return interpolateChunkSurfaceLevel(x, z);
     }
 
     [[nodiscard]] float sampleFinalDensity(double x, double y, double z) const {
@@ -584,52 +623,132 @@ private:
         float slopedCheese{};
     };
 
+    struct SurfaceTerrain {
+        float offset{};
+        float factor{};
+        float depth{};
+    };
+
+    struct ClimateShift {
+        float x{};
+        float z{};
+    };
+
+    struct ClimateChannels {
+        float temperature{};
+        float vegetation{};
+    };
+
+    struct TerrainColumn {
+        float rawOffset{};
+        float factor{};
+        float jaggedness{};
+        float jaggedNoise{};
+    };
+
+    struct CachedColumn {
+        ClimateShift shift{};
+        std::optional<Climate> climate;
+        std::optional<ClimateChannels> channels;
+        std::optional<TerrainColumn> terrain;
+    };
+
     // --- Climate -----------------------------------------------------------
 
-    [[nodiscard]] float shiftedNoise(const detail::NormalNoise& noise, double x, double z) const {
-        const detail::NormalNoise& shift = climateNoises_.shift;
-        const float shiftX = kShiftMultiplier * shift.sample(x * kClimateScale, 0.0, z * kClimateScale);
-        const float shiftZ = kShiftMultiplier * shift.sample(z * kClimateScale, x * kClimateScale, 0.0);
-        return noise.sample(x * kClimateScale + shiftX, 0.0, z * kClimateScale + shiftZ);
+    [[nodiscard]] CachedColumn& cachedColumn(double x, double z) const {
+        auto [entry, inserted] = climateCache_.try_emplace(SampleColumnKey{x, z});
+        if (inserted) {
+            const detail::NormalNoise& shift = climateNoises_.shift;
+            entry->second.shift.x =
+                kShiftMultiplier * shift.sample(x * kClimateScale, 0.0, z * kClimateScale);
+            entry->second.shift.z =
+                kShiftMultiplier * shift.sample(z * kClimateScale, x * kClimateScale, 0.0);
+        }
+        return entry->second;
+    }
+
+    [[nodiscard]] static float shiftedNoise(
+        const detail::NormalNoise& noise, double x, double z, ClimateShift shift
+    ) {
+        return noise.sample(x * kClimateScale + shift.x, 0.0, z * kClimateScale + shift.z);
     }
 
     [[nodiscard]] Climate sampleClimate(double x, double z) const {
-        Climate climate;
-        climate.continentalness = shiftedNoise(climateNoises_.continentalness, x, z);
-        climate.erosion = shiftedNoise(climateNoises_.erosion, x, z);
-        climate.weirdness = shiftedNoise(climateNoises_.ridge, x, z);
-        climate.ridges = detail::peaksAndValleys(climate.weirdness);
-        return climate;
+        CachedColumn& column = cachedColumn(x, z);
+        if (!column.climate) {
+            Climate climate;
+            climate.continentalness = shiftedNoise(climateNoises_.continentalness, x, z, column.shift);
+            climate.erosion = shiftedNoise(climateNoises_.erosion, x, z, column.shift);
+            climate.weirdness = shiftedNoise(climateNoises_.ridge, x, z, column.shift);
+            climate.ridges = detail::peaksAndValleys(climate.weirdness);
+            column.climate = climate;
+        }
+        return *column.climate;
+    }
+
+    [[nodiscard]] ClimateChannels sampleClimateChannels(double x, double z) const {
+        CachedColumn& column = cachedColumn(x, z);
+        if (!column.channels) {
+            column.channels = ClimateChannels{
+                shiftedNoise(climateNoises_.temperature, x, z, column.shift),
+                shiftedNoise(climateNoises_.vegetation, x, z, column.shift),
+            };
+        }
+        return *column.channels;
+    }
+
+    [[nodiscard]] TerrainColumn sampleTerrainColumn(
+        double x, double z, const Climate& climate
+    ) const {
+        CachedColumn& column = cachedColumn(x, z);
+        if (!column.terrain) {
+            const detail::TerrainPoint splinePoint{
+                climate.continentalness,
+                climate.erosion,
+                climate.weirdness,
+                climate.ridges,
+            };
+            column.terrain = TerrainColumn{
+                kOffsetBias + splines_.offset->sample(splinePoint),
+                splines_.factor->sample(splinePoint),
+                splines_.jaggedness->sample(splinePoint),
+                climateNoises_.jagged.sample(x * kJaggedNoiseScale, 0.0, z * kJaggedNoiseScale),
+            };
+        }
+        return *column.terrain;
     }
 
     // --- Terrain splines -> sloped cheese ----------------------------------
 
     [[nodiscard]] Terrain sampleTerrain(double x, double y, double z, const Climate& climate) const {
-        const detail::TerrainPoint splinePoint{
-            climate.continentalness,
-            climate.erosion,
-            climate.weirdness,
-            climate.ridges,
-        };
-
         // alpha = 1 means "no old-world blending here", which is the only case
         // the default BlendSampler produces.
+        const TerrainColumn column = sampleTerrainColumn(x, z, climate);
         const float alpha = blender_->alpha(x, y, z);
-        const float rawOffset = kOffsetBias + splines_.offset->sample(splinePoint);
-        const float offset = lerp(alpha, blender_->offset(x, y, z), rawOffset);
-        const float factor = lerp(alpha, kUnblendedFactor, splines_.factor->sample(splinePoint));
+        const float offset = lerp(alpha, blender_->offset(x, y, z), column.rawOffset);
+        const float factor = lerp(alpha, kUnblendedFactor, column.factor);
         const float unscaledJaggedness =
-            lerp(alpha, kUnblendedJaggedness, splines_.jaggedness->sample(splinePoint));
+            lerp(alpha, kUnblendedJaggedness, column.jaggedness);
 
-        const float jaggedNoise =
-            climateNoises_.jagged.sample(x * kJaggedNoiseScale, 0.0, z * kJaggedNoiseScale);
-        const float jaggedness = unscaledJaggedness * halfNegative(jaggedNoise);
+        const float jaggedness = unscaledJaggedness * halfNegative(column.jaggedNoise);
 
         const float depth =
             clampedGradient(y, kWorldMinY, kWorldMaxY, kDepthAtWorldBottom, kDepthAtWorldTop) + offset;
         const float initialDensity = noiseGradientDensity(factor, depth + jaggedness);
         const float slopedCheese = initialDensity + blendedNoise_.sample(x, y, z);
         return {offset, factor, depth, slopedCheese};
+    }
+
+    [[nodiscard]] SurfaceTerrain sampleSurfaceTerrain(
+        double x, double y, double z, const Climate& climate
+    ) const {
+        const TerrainColumn column = sampleTerrainColumn(x, z, climate);
+        const float alpha = blender_->alpha(x, y, z);
+        const float offset = lerp(alpha, blender_->offset(x, y, z), column.rawOffset);
+        const float factor = lerp(alpha, kUnblendedFactor, column.factor);
+        const float depth =
+            clampedGradient(y, kWorldMinY, kWorldMaxY, kDepthAtWorldBottom, kDepthAtWorldTop) + offset;
+        return {offset, factor, depth};
     }
 
     // --- Cave entrances (surface branch) -----------------------------------
@@ -804,7 +923,7 @@ private:
 
         // Invert the gradient-density equation at Y = 0 to get a starting
         // guess for where terrain crosses the surface, then search downwards.
-        const Terrain terrainAtZero = sampleTerrain(x, 0.0, z, climate);
+        const SurfaceTerrain terrainAtZero = sampleSurfaceTerrain(x, 0.0, z, climate);
         const float upperRaw = kSurfaceProbeNumerator / terrainAtZero.factor - terrainAtZero.offset;
         const float upper = std::clamp(
             remap(upperRaw, kDepthAtWorldBottom, kDepthAtWorldTop,
@@ -814,7 +933,7 @@ private:
         );
 
         for (int y = floorToGrid(upper, kCellHeight); y >= static_cast<int>(kWorldMinY); y -= kCellHeight) {
-            const Terrain terrain = sampleTerrain(x, y, z, climate);
+            const SurfaceTerrain terrain = sampleSurfaceTerrain(x, y, z, climate);
             // Jaggedness and the 3-D noises are deliberately left out: this is
             // a cheap estimate, not the real surface.
             const float gradientDensity = noiseGradientDensity(terrain.factor, terrain.depth);
@@ -828,7 +947,7 @@ private:
         return static_cast<float>(kWorldMinY);
     }
 
-    [[nodiscard]] float sampleChunkSurfaceLevel(double x, double z) const {
+    [[nodiscard]] float interpolateChunkSurfaceLevel(double x, double z) const {
         return surfaceCache_.sample(x, z, [&](int sx, int sz) { return preliminarySurface(sx, sz); });
     }
 
@@ -847,6 +966,7 @@ private:
     mutable LatticeCache<float> postCache_{kCellWidth, kCellHeight};
     mutable LatticeCache<NoodleSample> noodleCache_{kCellWidth, kCellHeight};
     mutable ColumnCache surfaceCache_{kColumnSpacing};
+    mutable std::unordered_map<SampleColumnKey, CachedColumn, SampleColumnKeyHash> climateCache_;
 };
 
 OverworldNoiseRouter::OverworldNoiseRouter(
@@ -864,6 +984,10 @@ std::int64_t OverworldNoiseRouter::seed() const noexcept {
     return impl_->seed();
 }
 
+OverworldNoiseRouter OverworldNoiseRouter::clone() const {
+    return OverworldNoiseRouter(impl_->seed(), impl_->blender(), impl_->beardifier());
+}
+
 RouterSample OverworldNoiseRouter::sample(double x, double y, double z) const {
     return impl_->sample(x, y, z);
 }
@@ -878,6 +1002,10 @@ float OverworldNoiseRouter::sampleFinalDensity(double x, double y, double z) con
 
 float OverworldNoiseRouter::samplePreliminarySurface(int x, int z) const {
     return impl_->samplePreliminarySurface(x, z);
+}
+
+float OverworldNoiseRouter::sampleChunkSurfaceLevel(double x, double z) const {
+    return impl_->sampleChunkSurfaceLevel(x, z);
 }
 
 } // namespace mcworld

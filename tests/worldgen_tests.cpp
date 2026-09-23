@@ -250,6 +250,8 @@ void testKnownDensities() {
         check(std::abs(actual.depth - want.depth) < kTolerance, "depth matches recorded value");
         check(std::abs(actual.ridges - want.ridges) < kTolerance, "ridges matches recorded value");
         check(std::abs(actual.chunkSurfaceLevel - want.chunkSurfaceLevel) < kTolerance, "surface level matches recorded value");
+        check(actual.chunkSurfaceLevel == router.sampleChunkSurfaceLevel(24.0, -56.0),
+              "focused surface-level sampling matches the full router");
         check(std::abs(actual.finalDensity - want.finalDensity) < kTolerance, "final density matches recorded value");
     }
 }

@@ -319,6 +319,22 @@ void testAreaValidation() {
           && profile.decorationChunkCount == 0
           && profile.outputChunkCount == profiled.chunks.size(),
           "generation profile reports each phase's chunk count");
+
+    profileOptions.terrainThreads = 2;
+    mcworld::OverworldNoiseRouter parallelRouter(router.seed());
+    mcworld::OverworldWorldGenerator parallelGenerator(parallelRouter, profileOptions);
+    const auto parallel = parallelGenerator.generateArea(0, 0, 2, 1);
+    check(parallel.chunks.size() == profiled.chunks.size(), "parallel terrain returns every chunk");
+    for (std::size_t i = 0; i < parallel.chunks.size() && i < profiled.chunks.size(); ++i) {
+        const auto& a = profiled.chunks[i].terrain;
+        const auto& b = parallel.chunks[i].terrain;
+        check(a.blocks == b.blocks && a.biomes == b.biomes
+              && a.worldSurface == b.worldSurface && a.oceanFloor == b.oceanFloor
+              && a.motionBlocking == b.motionBlocking
+              && a.motionBlockingNoLeaves == b.motionBlockingNoLeaves
+              && a.fluidPostProcessing == b.fluidPostProcessing,
+              "parallel terrain is identical to serial terrain");
+    }
 }
 
 void testFeatureSorterAndModifiers() {

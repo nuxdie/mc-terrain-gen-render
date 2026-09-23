@@ -169,6 +169,10 @@ struct StructureReference {
 
 struct GenerationOptions {
     TerrainOptions terrain;
+    // Independent terrain chunks may be generated concurrently. Every worker
+    // owns a router and mutable caches; custom biome/blend/beard samplers must
+    // be thread-safe when this is greater than one.
+    std::size_t terrainThreads = 1;
     // Java's `generateStructures` world option, gating stage 5 entirely:
     // without it there are no starts, no references and no beardification.
     bool structures = true;
@@ -203,8 +207,9 @@ struct GeneratedArea {
 };
 
 // Optional phase-level measurements for one generateArea call. Stage 5 is
-// measured where its lazy structure index is queried, preserving generation
-// and cache-fill order.
+// measured where its lazy structure index is queried. Terrain seconds is wall
+// time; detailed terrain fields are sums across chunks and can exceed it when
+// terrain is generated concurrently.
 struct GenerationProfile {
     double stage5Seconds{};
     double terrainSeconds{};

@@ -72,6 +72,11 @@ int main() {
     check(water, "Water has a separate colored surface");
     check(!a.empty() && a == b, "Adjacent chunks agree on seam positions, normals and materials");
 
+    const auto parallel = terrain.buildSmoothArea(-1, 2, 2, 1, 2);
+    check(parallel.size() == 2 && parallel[0].vertices == left.vertices
+          && parallel[1].vertices == right.vertices,
+          "Parallel smooth meshes are identical to serial meshes");
+
     const auto voxel = terrain.buildMesh(-1, 2);
     std::set<std::pair<float, float>> voxelTiles;
     for (const auto& v : voxel.vertices) {

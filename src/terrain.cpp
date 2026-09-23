@@ -92,6 +92,7 @@ void TerrainChunk::primeHeightmaps() {
     for (int z = 0; z < width; ++z) {
         for (int x = 0; x < width; ++x) {
             const auto column = static_cast<std::size_t>(z * width + x);
+            std::size_t unresolved = detail::kHeightmaps.size();
             // Heightmaps store the first free Y, so the topmost qualifying
             // block found scanning down wins; `minY` marks a column still
             // looking for one.
@@ -101,8 +102,10 @@ void TerrainChunk::primeHeightmaps() {
                     int& height = (this->*map.column)[column];
                     if (height == minY && map.counts(block)) {
                         height = y + 1;
+                        --unresolved;
                     }
                 }
+                if (unresolved == 0) break;
             }
         }
     }

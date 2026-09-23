@@ -21,6 +21,9 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -29,6 +32,7 @@ struct Options {
     int chunkX{0};
     int chunkZ{0};
     int chunks{8};
+    unsigned threads{std::clamp(std::thread::hardware_concurrency(), 1U, 8U)};
     bool headless{false};
     bool voxel{false};
     bool terrainOnly{false};
@@ -53,10 +57,11 @@ Number parseNumber(std::string_view text, std::string_view option) {
 
 void printUsage(const char* executable) {
     std::cout
-        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--chunks N] [--voxel] [--terrain-only] [--headless]\n"
+        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--chunks N] [--threads N] [--voxel] [--terrain-only] [--headless]\n"
         << "\n"
         << "Renders Minecraft 26.3 standard Overworld terrain as a smooth mesh or voxel blocks.\n"
         << "--chunks N: N x N area around the selected chunk (default 8, range 1..16).\n"
+        << "--threads N: terrain and smooth-mesh workers (default up to 8, range 1..64).\n"
         << "--voxel: start in voxel mode; with --headless, build only the voxel mesh.\n"
         << "--terrain-only: skip structure and feature finalization.\n"
         << "--templates FILE: load a generated Minecraft structure catalog (.mcwc).\n"
@@ -95,6 +100,8 @@ Options parseOptions(int argc, char** argv) {
             options.chunkZ = parseNumber<int>(value, argument);
         } else if (argument == "--chunks") {
             options.chunks = parseNumber<int>(value, argument);
+        } else if (argument == "--threads") {
+            options.threads = parseNumber<unsigned>(value, argument);
         } else if (argument == "--templates") {
             options.templates = value;
         } else {
@@ -103,6 +110,9 @@ Options parseOptions(int argc, char** argv) {
     }
     if (options.chunks < 1 || options.chunks > 16) {
         throw std::invalid_argument("--chunks must be between 1 and 16");
+    }
+    if (options.threads < 1 || options.threads > 64) {
+        throw std::invalid_argument("--threads must be between 1 and 64");
     }
     for (const int center : {options.chunkX, options.chunkZ}) {
         const std::int64_t first = static_cast<std::int64_t>(center) - options.chunks / 2;
@@ -126,6 +136,11 @@ Mesh buildArea(const Options& options, Build build) {
             const int dx = x - options.chunks / 2;
             const int dz = z - options.chunks / 2;
             Mesh chunk = build(options.chunkX + dx, options.chunkZ + dz);
+            if (area.vertices.empty() && !chunk.vertices.empty()) {
+                area.vertices.reserve(
+                    chunk.vertices.size() * static_cast<std::size_t>(options.chunks) * options.chunks
+                );
+            }
             for (auto& vertex : chunk.vertices) {
                 vertex.x += static_cast<float>(dx * 16);
                 vertex.z += static_cast<float>(dz * 16);
@@ -136,6 +151,24 @@ Mesh buildArea(const Options& options, Build build) {
                 area.waterBlockCount += chunk.waterBlockCount;
                 area.lavaBlockCount += chunk.lavaBlockCount;
             }
+        }
+    }
+    return area;
+}
+
+template <typename Mesh>
+Mesh mergeArea(const Options& options, std::vector<Mesh> chunks) {
+    Mesh area;
+    for (int z = 0; z < options.chunks; ++z) {
+        for (int x = 0; x < options.chunks; ++x) {
+            const int dx = x - options.chunks / 2;
+            const int dz = z - options.chunks / 2;
+            Mesh chunk = std::move(chunks[static_cast<std::size_t>(z) * options.chunks + x]);
+            for (auto& vertex : chunk.vertices) {
+                vertex.x += static_cast<float>(dx * 16);
+                vertex.z += static_cast<float>(dz * 16);
+            }
+            area.vertices.insert(area.vertices.end(), chunk.vertices.begin(), chunk.vertices.end());
         }
     }
     return area;
@@ -300,6 +333,7 @@ int main(int argc, char** argv) {
 
         const mcworld::OverworldNoiseRouter router(options.seed);
         mcworld::GenerationOptions generation;
+        generation.terrainThreads = options.threads;
         if (!options.templates.empty() && !options.terrainOnly) {
             generation.templates = mcworld::loadStructureTemplateCatalog(options.templates);
             std::cout << "structure_templates=" << generation.templates->templates.size()
@@ -351,9 +385,9 @@ int main(int argc, char** argv) {
         double surfaceSeconds = 0.0;
         if (!options.headless || !options.voxel) {
             const auto surfaceStarted = std::chrono::steady_clock::now();
-            surface = buildArea<viewer::SmoothTerrainMesh>(options, [&](int x, int z) {
-                return terrain.buildSmoothMesh(x, z);
-            });
+            surface = mergeArea(options, terrain.buildSmoothArea(
+                firstChunkX, firstChunkZ, options.chunks, options.chunks, options.threads
+            ));
             surfaceSeconds =
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - surfaceStarted).count();
 

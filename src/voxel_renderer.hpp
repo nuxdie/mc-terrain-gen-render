@@ -23,6 +23,8 @@ struct VoxelVertex {
     std::uint8_t red{};
     std::uint8_t green{};
     std::uint8_t blue{};
+
+    bool operator==(const VoxelVertex&) const = default;
 };
 
 struct VoxelMesh {
@@ -60,10 +62,16 @@ public:
     void prepareTerrainArea(int firstChunkX, int firstChunkZ, int width, int depth);
 
     [[nodiscard]] SmoothTerrainMesh buildSmoothMesh(int chunkX, int chunkZ);
+    [[nodiscard]] std::vector<SmoothTerrainMesh> buildSmoothArea(
+        int firstChunkX, int firstChunkZ, int width, int depth, std::size_t threads
+    );
     [[nodiscard]] VoxelMesh buildMesh(int chunkX, int chunkZ);
 
 private:
     [[nodiscard]] const mcworld::TerrainChunk& chunk(int x, int z);
+    [[nodiscard]] SmoothTerrainMesh buildSmoothMesh(
+        int chunkX, int chunkZ, const mcworld::OverworldNoiseRouter& router, bool preparedOnly
+    );
 
     const mcworld::OverworldNoiseRouter& router_;
     mcworld::OverworldWorldGenerator worldGenerator_;

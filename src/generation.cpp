@@ -21,12 +21,17 @@
 #include "mcworld/structure_templates.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <stdexcept>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -248,6 +253,9 @@ class OverworldWorldGenerator::Impl {
 public:
     Impl(const OverworldNoiseRouter& router, GenerationOptions options)
         : router_(router), options_(std::move(options)) {
+        if (options_.terrainThreads == 0) {
+            throw std::invalid_argument("Terrain thread count must be positive");
+        }
         if (!options_.terrain.biomes) options_.terrain.biomes = std::make_shared<BiomeSource>();
         if (options_.templates) options_.templates->validate();
     }
@@ -260,13 +268,15 @@ public:
         const auto stage5Started = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
         const detail::StructureIndex structures = makeStructureIndex();
         if (profile != nullptr) profile->stage5Seconds += elapsedSeconds(stage5Started);
-        OverworldTerrainGenerator terrain(router_, options_.terrain);
-
         // Stage 7B, with stage 5's terrain adaptation folded into the density
         // graph. The beardifier is sampled once per block, so when no
         // referenced start adapts terrain we take the overload that skips it
         // entirely rather than adding a zero ~98k times.
-        detail::ChunkMap chunks;
+        struct TerrainJob {
+            ChunkPosition chunk;
+            detail::ChunkBeardifier beardifier;
+        };
+        std::vector<TerrainJob> jobs;
         forEachChunk(plan.terrain, [&](ChunkPosition chunk) {
             const auto structureStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
             const auto& references = structures.references(chunk);
@@ -275,20 +285,62 @@ public:
                 profile->stage5Seconds += elapsedSeconds(structureStarted);
                 ++profile->terrainChunkCount;
             }
-            const auto terrainStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
-            if (profile != nullptr) {
-                TerrainGenerationProfile chunkProfile;
-                chunks.emplace(chunk, beardifier.empty()
-                    ? terrain.generate(chunk.x, chunk.z, chunkProfile)
-                    : terrain.generate(chunk.x, chunk.z, beardifier, chunkProfile));
-                profile->terrainSeconds += elapsedSeconds(terrainStarted);
-                addTerrainProfile(profile->terrainDetail, chunkProfile);
-            } else {
-                chunks.emplace(chunk, beardifier.empty()
-                    ? terrain.generate(chunk.x, chunk.z)
-                    : terrain.generate(chunk.x, chunk.z, beardifier));
-            }
+            jobs.push_back({chunk, std::move(beardifier)});
         });
+
+        const auto terrainStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
+        std::vector<std::optional<TerrainChunk>> generated(jobs.size());
+        std::vector<TerrainGenerationProfile> chunkProfiles(profile != nullptr ? jobs.size() : 0);
+        const auto generateJob = [&](OverworldTerrainGenerator& terrain, std::size_t index) {
+            const TerrainJob& job = jobs[index];
+            if (profile != nullptr) {
+                generated[index] = job.beardifier.empty()
+                    ? terrain.generate(job.chunk.x, job.chunk.z, chunkProfiles[index])
+                    : terrain.generate(job.chunk.x, job.chunk.z, job.beardifier, chunkProfiles[index]);
+            } else {
+                generated[index] = job.beardifier.empty()
+                    ? terrain.generate(job.chunk.x, job.chunk.z)
+                    : terrain.generate(job.chunk.x, job.chunk.z, job.beardifier);
+            }
+        };
+
+        const std::size_t workerCount = std::min(options_.terrainThreads, jobs.size());
+        if (workerCount == 1) {
+            OverworldTerrainGenerator terrain(router_, options_.terrain);
+            for (std::size_t i = 0; i < jobs.size(); ++i) generateJob(terrain, i);
+        } else {
+            std::atomic_size_t next{};
+            std::atomic_bool stop{};
+            std::exception_ptr failure;
+            std::mutex failureMutex;
+            const auto work = [&] {
+                try {
+                    OverworldNoiseRouter workerRouter = router_.clone();
+                    OverworldTerrainGenerator terrain(workerRouter, options_.terrain);
+                    while (!stop.load(std::memory_order_relaxed)) {
+                        const std::size_t index = next.fetch_add(1, std::memory_order_relaxed);
+                        if (index >= jobs.size()) break;
+                        generateJob(terrain, index);
+                    }
+                } catch (...) {
+                    stop.store(true, std::memory_order_relaxed);
+                    std::lock_guard lock(failureMutex);
+                    if (!failure) failure = std::current_exception();
+                }
+            };
+            std::vector<std::thread> workers;
+            workers.reserve(workerCount);
+            for (std::size_t i = 0; i < workerCount; ++i) workers.emplace_back(work);
+            for (auto& worker : workers) worker.join();
+            if (failure) std::rethrow_exception(failure);
+        }
+
+        detail::ChunkMap chunks;
+        for (std::size_t i = 0; i < jobs.size(); ++i) {
+            chunks.emplace(jobs[i].chunk, std::move(*generated[i]));
+            if (profile != nullptr) addTerrainProfile(profile->terrainDetail, chunkProfiles[i]);
+        }
+        if (profile != nullptr) profile->terrainSeconds = elapsedSeconds(terrainStarted);
 
         // Stage 8. Every source runs before any output chunk is harvested,
         // because a source's writes land in its neighbours.

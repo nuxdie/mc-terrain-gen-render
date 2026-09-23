@@ -3,13 +3,18 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <iostream>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <tuple>
+#include <utility>
 
 namespace viewer {
 namespace {
@@ -712,12 +717,57 @@ void VoxelTerrain::prepareTerrainArea(int firstChunkX, int firstChunkZ, int widt
 }
 
 SmoothTerrainMesh VoxelTerrain::buildSmoothMesh(int chunkX, int chunkZ) {
+    return buildSmoothMesh(chunkX, chunkZ, router_, false);
+}
+
+std::vector<SmoothTerrainMesh> VoxelTerrain::buildSmoothArea(
+    int firstChunkX, int firstChunkZ, int width, int depth, std::size_t threads
+) {
+    if (width <= 0 || depth <= 0 || threads == 0) {
+        throw std::invalid_argument("Smooth mesh area dimensions and thread count must be positive");
+    }
+    const std::size_t count = static_cast<std::size_t>(width) * depth;
+    std::vector<SmoothTerrainMesh> meshes(count);
+    const std::size_t workerCount = std::min(threads, count);
+    std::atomic_bool stop{};
+    std::exception_ptr failure;
+    std::mutex failureMutex;
+    const auto work = [&](std::size_t worker) {
+        try {
+            mcworld::OverworldNoiseRouter workerRouter = router_.clone();
+            const std::size_t first = count * worker / workerCount;
+            const std::size_t last = count * (worker + 1) / workerCount;
+            for (std::size_t index = first; index < last && !stop.load(std::memory_order_relaxed); ++index) {
+                const int x = firstChunkX + static_cast<int>(index % width);
+                const int z = firstChunkZ + static_cast<int>(index / width);
+                meshes[index] = buildSmoothMesh(x, z, workerRouter, true);
+            }
+        } catch (...) {
+            stop.store(true, std::memory_order_relaxed);
+            std::lock_guard lock(failureMutex);
+            if (!failure) failure = std::current_exception();
+        }
+    };
+    std::vector<std::thread> workers;
+    workers.reserve(workerCount);
+    for (std::size_t worker = 0; worker < workerCount; ++worker) workers.emplace_back(work, worker);
+    for (auto& worker : workers) worker.join();
+    if (failure) std::rethrow_exception(failure);
+    return meshes;
+}
+
+SmoothTerrainMesh VoxelTerrain::buildSmoothMesh(
+    int chunkX, int chunkZ, const mcworld::OverworldNoiseRouter& router, bool preparedOnly
+) {
     BlockGrid grid;
     for (int z = kGridMin; z <= kGridMax; ++z) {
         for (int x = kGridMin; x <= kGridMax; ++x) {
             const int dx = x < 0 ? -1 : (x >= kChunkSize ? 1 : 0);
             const int dz = z < 0 ? -1 : (z >= kChunkSize ? 1 : 0);
-            const mcworld::TerrainChunk& terrain = chunk(chunkX + dx, chunkZ + dz);
+            const auto key = std::pair{chunkX + dx, chunkZ + dz};
+            const mcworld::TerrainChunk& terrain = preparedOnly
+                ? std::as_const(chunks_).at(key)
+                : chunk(key.first, key.second);
             for (int y = kMinY; y < kMaxY; ++y) {
                 grid.set(x, y, z, terrain.at(x - dx * kChunkSize, y, z - dz * kChunkSize));
             }
@@ -734,7 +784,7 @@ SmoothTerrainMesh VoxelTerrain::buildSmoothMesh(int chunkX, int chunkZ) {
     };
     for (int z = kGridMin; z <= kGridMax; ++z) for (int x = kGridMin; x <= kGridMax; ++x) {
         for (int y = kGridMinY; y <= kGridMaxY; ++y) {
-            const float raw = router_.sampleFinalDensity(
+            const float raw = router.sampleFinalDensity(
                 static_cast<double>(chunkX) * 16 + x, y, static_cast<double>(chunkZ) * 16 + z);
             const bool solid = mcworld::isSolid(grid.at(x, y, z));
             densities[densityIndex(x, y, z)] = raw;

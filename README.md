@@ -76,6 +76,9 @@ Use `--chunks N` (1–16) for an N×N area, or `--chunks 1` for a single chunk.
 Each axis runs from `center - N/2` (integer division) through `center - N/2 + N - 1`;
 the default at (0, 0) covers chunks -4 through 3 on both axes (128×128 blocks).
 The area is generated at startup and does not stream as the camera moves.
+Finalized terrain generation and smooth meshing use up to eight workers by
+default. Use `--threads N` (1–64) to tune them for the machine; `--threads 1`
+keeps both serial.
 
 Use `--headless` to generate the complete mesh and print statistics without
 opening a window. Combine it with `--voxel` to also generate and report voxel

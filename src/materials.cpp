@@ -410,7 +410,7 @@ private:
     // Lowest Y at which the surface rules still apply. Java compares against
     // the preliminary surface level, offset by the column's own depth.
     [[nodiscard]] int minSurfaceY(int worldX, int worldZ, int depth) const {
-        return static_cast<int>(std::floor(router_.sample(worldX, 0, worldZ).chunkSurfaceLevel)) + depth - 8;
+        return static_cast<int>(std::floor(router_.sampleChunkSurfaceLevel(worldX, worldZ))) + depth - 8;
     }
 
     [[nodiscard]] int clayBandShift(int worldX, int worldZ) const {

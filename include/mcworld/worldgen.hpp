@@ -60,10 +60,14 @@ public:
     OverworldNoiseRouter& operator=(const OverworldNoiseRouter&) = delete;
 
     [[nodiscard]] std::int64_t seed() const noexcept;
+    // Creates an equivalent router with empty mutable caches. Injected samplers
+    // are shared and must be thread-safe if the routers are used concurrently.
+    [[nodiscard]] OverworldNoiseRouter clone() const;
     [[nodiscard]] RouterSample sample(double x, double y, double z) const;
     [[nodiscard]] BiomeClimateSample sampleBiomeClimate(double x, double y, double z) const;
     [[nodiscard]] float sampleFinalDensity(double x, double y, double z) const;
     [[nodiscard]] float samplePreliminarySurface(int x, int z) const;
+    [[nodiscard]] float sampleChunkSurfaceLevel(double x, double z) const;
 
 private:
     class Impl;

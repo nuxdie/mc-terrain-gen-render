@@ -125,7 +125,7 @@ Aquifer::Fluid Aquifer::fluid(int x, int y, int z) {
     }
 
     // Deep, heavily eroded terrain is excluded from aquifers entirely.
-    const RouterSample climate = router_.sample(x, y, z);
+    const BiomeClimateSample climate = router_.sampleBiomeClimate(x, y, z);
     const bool excluded = climate.erosion < -.225F && climate.depth > .9F;
 
     int level = kNoFluid;
