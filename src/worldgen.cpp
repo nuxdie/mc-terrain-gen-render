@@ -522,6 +522,37 @@ public:
         return result;
     }
 
+    [[nodiscard]] BiomeClimateSample sampleBiomeClimate(double x, double y, double z) const {
+        requireOnGrid(x, kColumnSpacing);
+        requireOnGrid(y, kCellHeight);
+        requireOnGrid(z, kColumnSpacing);
+
+        const Climate climate = sampleClimate(x, z);
+        const detail::TerrainPoint splinePoint{
+            climate.continentalness,
+            climate.erosion,
+            climate.weirdness,
+            climate.ridges,
+        };
+
+        // This is the exact sampleTerrain prefix needed for depth. Biome
+        // selection does not consume factor, jaggedness or sloped cheese.
+        const float alpha = blender_->alpha(x, y, z);
+        const float rawOffset = kOffsetBias + splines_.offset->sample(splinePoint);
+        const float offset = lerp(alpha, blender_->offset(x, y, z), rawOffset);
+
+        BiomeClimateSample result;
+        result.temperature = shiftedNoise(climateNoises_.temperature, x, z);
+        result.vegetation = shiftedNoise(climateNoises_.vegetation, x, z);
+        result.continentalness = climate.continentalness;
+        result.erosion = climate.erosion;
+        result.depth = clampedGradient(
+            y, kWorldMinY, kWorldMaxY, kDepthAtWorldBottom, kDepthAtWorldTop
+        ) + offset;
+        result.ridges = climate.weirdness;
+        return result;
+    }
+
     // final_density = min(post-processed caves, noodle) + beardifier
     [[nodiscard]] float samplePreliminarySurface(int x, int z) const {
         requireOnGrid(x, kColumnSpacing);
@@ -835,6 +866,10 @@ std::int64_t OverworldNoiseRouter::seed() const noexcept {
 
 RouterSample OverworldNoiseRouter::sample(double x, double y, double z) const {
     return impl_->sample(x, y, z);
+}
+
+BiomeClimateSample OverworldNoiseRouter::sampleBiomeClimate(double x, double y, double z) const {
+    return impl_->sampleBiomeClimate(x, y, z);
 }
 
 float OverworldNoiseRouter::sampleFinalDensity(double x, double y, double z) const {

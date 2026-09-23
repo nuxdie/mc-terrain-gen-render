@@ -315,7 +315,8 @@ void testAreaValidation() {
     mcworld::OverworldWorldGenerator profiledGenerator(router, profileOptions);
     mcworld::GenerationProfile profile;
     const auto profiled = profiledGenerator.generateArea(0, 0, 2, 1, profile);
-    check(profile.terrainChunkCount == 2 && profile.decorationChunkCount == 0
+    check(profile.terrainChunkCount == 2 && profile.terrainDetail.chunkCount == 2
+          && profile.decorationChunkCount == 0
           && profile.outputChunkCount == profiled.chunks.size(),
           "generation profile reports each phase's chunk count");
 }

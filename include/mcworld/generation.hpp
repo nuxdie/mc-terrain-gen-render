@@ -213,6 +213,7 @@ struct GenerationProfile {
     std::size_t terrainChunkCount{};
     std::size_t decorationChunkCount{};
     std::size_t outputChunkCount{};
+    TerrainGenerationProfile terrainDetail{};
 };
 
 class OverworldWorldGenerator {

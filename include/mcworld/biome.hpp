@@ -35,6 +35,7 @@ constexpr std::size_t kBiomeCount = static_cast<std::size_t>(Biome::DeepDark) + 
 //
 // Throws `std::invalid_argument` if the climate is not finite and in range.
 [[nodiscard]] Biome resolveOverworldBiome(const RouterSample& climate);
+[[nodiscard]] Biome resolveOverworldBiome(const BiomeClimateSample& climate);
 
 // Inputs are block coordinates, snapped down to the quart lattice (also at
 // negatives). Block-resolution lookups additionally jitter the quart cell; that

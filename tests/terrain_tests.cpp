@@ -67,8 +67,8 @@ void testClimate() {
 }
 
 void testJavaBiomeSlices() {
-    // Java OverworldBiomeBuilder: 7,594 registered points, queried with brute-force
-    // first-registered tie-breaking (the project's documented lookup policy).
+    // Java OverworldBiomeBuilder: 7,594 registered points, queried with the
+    // project's documented first-registered tie-breaking policy.
     // FNV-1a over Biome ordinals for all 9,100 interior surface climate slices.
     constexpr float ts[]{-.7F,-.3F,0,.4F,.8F}, hs[]{-.7F,-.2F,0,.2F,.7F};
     constexpr float cs[]{-.15F,0,.15F,.65F}, es[]{-.9F,-.6F,-.3F,0,.3F,.5F,.8F};

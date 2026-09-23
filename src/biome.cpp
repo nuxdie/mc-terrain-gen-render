@@ -5,7 +5,8 @@
 // each an axis-aligned box in the six climate dimensions. A lookup quantizes
 // the sampled climate the same way (`(long)(value * 10000)`), then takes the
 // nearest box by squared distance, counting a dimension as distance zero when
-// the value is inside its interval.
+// the value is inside its interval. Lookup uses a bounding-volume tree over the
+// boxes while preserving first-registered tie-breaking.
 //
 // The registration *order* is part of the behaviour. Boxes overlap, and equal
 // distances resolve to the first point registered, so the table below is
@@ -21,7 +22,9 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace mcworld {
@@ -362,10 +365,145 @@ std::vector<Point> makePoints() {
     return points.take();
 }
 
+class PointIndex {
+public:
+    explicit PointIndex(std::vector<Point> points) : points_(std::move(points)), order_(points_.size()) {
+        std::iota(order_.begin(), order_.end(), std::size_t{0});
+        nodes_.reserve(points_.size() * 2);
+        root_ = build(0, order_.size());
+    }
+
+    [[nodiscard]] Biome nearest(const std::array<std::int64_t, kClimateAxes>& target) const {
+        Search search{target};
+        visit(root_, search);
+        return points_[search.bestIndex].biome;
+    }
+
+private:
+    static constexpr std::size_t kLeafSize = 12;
+
+    struct Node {
+        std::array<std::array<std::int64_t, 2>, kClimateAxes> bounds{};
+        std::size_t first{};
+        std::size_t count{};
+        std::size_t minIndex{std::numeric_limits<std::size_t>::max()};
+        int left{-1};
+        int right{-1};
+    };
+
+    struct Search {
+        const std::array<std::int64_t, kClimateAxes>& target;
+        std::int64_t bestDistance{std::numeric_limits<std::int64_t>::max()};
+        std::size_t bestIndex{std::numeric_limits<std::size_t>::max()};
+    };
+
+    [[nodiscard]] int build(std::size_t first, std::size_t last) {
+        Node node;
+        node.first = first;
+        node.count = last - first;
+        for (auto& bounds : node.bounds) {
+            bounds = {std::numeric_limits<std::int64_t>::max(), std::numeric_limits<std::int64_t>::min()};
+        }
+        std::array<std::int64_t, kClimateAxes> minCenter;
+        std::array<std::int64_t, kClimateAxes> maxCenter;
+        minCenter.fill(std::numeric_limits<std::int64_t>::max());
+        maxCenter.fill(std::numeric_limits<std::int64_t>::min());
+        for (std::size_t position = first; position < last; ++position) {
+            const std::size_t index = order_[position];
+            node.minIndex = std::min(node.minIndex, index);
+            for (int axis = 0; axis < kClimateAxes; ++axis) {
+                const auto& range = points_[index].ranges[axis];
+                node.bounds[axis][0] = std::min(node.bounds[axis][0], range[0]);
+                node.bounds[axis][1] = std::max(node.bounds[axis][1], range[1]);
+                const std::int64_t center = range[0] + range[1];
+                minCenter[axis] = std::min(minCenter[axis], center);
+                maxCenter[axis] = std::max(maxCenter[axis], center);
+            }
+        }
+
+        const int nodeIndex = static_cast<int>(nodes_.size());
+        nodes_.push_back(node);
+        if (node.count <= kLeafSize) return nodeIndex;
+
+        int splitAxis = 0;
+        for (int axis = 1; axis < kClimateAxes; ++axis) {
+            if (maxCenter[axis] - minCenter[axis] > maxCenter[splitAxis] - minCenter[splitAxis]) {
+                splitAxis = axis;
+            }
+        }
+        const std::size_t middle = first + node.count / 2;
+        std::nth_element(
+            order_.begin() + static_cast<std::ptrdiff_t>(first),
+            order_.begin() + static_cast<std::ptrdiff_t>(middle),
+            order_.begin() + static_cast<std::ptrdiff_t>(last),
+            [&](std::size_t left, std::size_t right) {
+                const auto& leftRange = points_[left].ranges[splitAxis];
+                const auto& rightRange = points_[right].ranges[splitAxis];
+                const std::int64_t leftCenter = leftRange[0] + leftRange[1];
+                const std::int64_t rightCenter = rightRange[0] + rightRange[1];
+                return leftCenter < rightCenter || (leftCenter == rightCenter && left < right);
+            }
+        );
+        nodes_[nodeIndex].left = build(first, middle);
+        nodes_[nodeIndex].right = build(middle, last);
+        return nodeIndex;
+    }
+
+    [[nodiscard]] static std::int64_t distance(
+        const std::array<std::array<std::int64_t, 2>, kClimateAxes>& bounds,
+        const std::array<std::int64_t, kClimateAxes>& target
+    ) {
+        std::int64_t result = 0;
+        for (int axis = 0; axis < kClimateAxes; ++axis) {
+            const auto gap = std::max({bounds[axis][0] - target[axis],
+                                       target[axis] - bounds[axis][1],
+                                       std::int64_t{0}});
+            result += gap * gap;
+        }
+        return result;
+    }
+
+    void visit(int nodeIndex, Search& search) const {
+        const Node& node = nodes_[nodeIndex];
+        const std::int64_t lowerBound = distance(node.bounds, search.target);
+        if (lowerBound > search.bestDistance
+            || (lowerBound == search.bestDistance && node.minIndex >= search.bestIndex)) {
+            return;
+        }
+
+        if (node.left < 0) {
+            for (std::size_t position = node.first; position < node.first + node.count; ++position) {
+                const std::size_t index = order_[position];
+                const std::int64_t pointDistance = distance(points_[index].ranges, search.target);
+                if (pointDistance < search.bestDistance
+                    || (pointDistance == search.bestDistance && index < search.bestIndex)) {
+                    search.bestDistance = pointDistance;
+                    search.bestIndex = index;
+                }
+            }
+            return;
+        }
+
+        const Node& left = nodes_[node.left];
+        const Node& right = nodes_[node.right];
+        const std::int64_t leftDistance = distance(left.bounds, search.target);
+        const std::int64_t rightDistance = distance(right.bounds, search.target);
+        const bool leftFirst = leftDistance < rightDistance
+            || (leftDistance == rightDistance && left.minIndex < right.minIndex);
+        visit(leftFirst ? node.left : node.right, search);
+        visit(leftFirst ? node.right : node.left, search);
+    }
+
+    std::vector<Point> points_;
+    std::vector<std::size_t> order_;
+    std::vector<Node> nodes_;
+    int root_{};
+};
+
 } // namespace
 
 Biome resolveOverworldBiome(const RouterSample& sample) {
-    static const std::vector<Point> points = makePoints();
+    static const PointIndex points(makePoints());
 
     const std::array<float, kClimateAxes> values{sample.temperature, sample.vegetation, sample.continentalness,
                                                  sample.erosion, sample.depth, sample.ridges};
@@ -377,34 +515,25 @@ Biome resolveOverworldBiome(const RouterSample& sample) {
         target[axis] = quantize(values[axis]);
     }
 
-    std::int64_t best = std::numeric_limits<std::int64_t>::max();
-    Biome result = Plains;
-    for (const Point& point : points) {
-        std::int64_t distance = 0;
-        for (int axis = 0; axis < kClimateAxes; ++axis) {
-            // Distance zero inside the interval, else the gap to the nearer edge.
-            const auto gap = std::max({point.ranges[axis][0] - target[axis],
-                                       target[axis] - point.ranges[axis][1],
-                                       std::int64_t{0}});
-            distance += gap * gap;
-            if (distance >= best) {
-                break; // Later axes only add, so this point cannot win.
-            }
-        }
-        // Strictly-less keeps the first registered point on a tie.
-        if (distance < best) {
-            best = distance;
-            result = point.biome;
-        }
-    }
-    return result;
+    return points.nearest(target);
+}
+
+Biome resolveOverworldBiome(const BiomeClimateSample& climate) {
+    RouterSample sample;
+    sample.temperature = climate.temperature;
+    sample.vegetation = climate.vegetation;
+    sample.continentalness = climate.continentalness;
+    sample.erosion = climate.erosion;
+    sample.depth = climate.depth;
+    sample.ridges = climate.ridges;
+    return resolveOverworldBiome(sample);
 }
 
 Biome sampleOverworldBiome(const OverworldNoiseRouter& router, int x, int y, int z) {
     // Climate is sampled on the quart lattice, flooring towards negative
     // infinity so a block's cell does not flip sign at the origin.
     auto quart = [](int value) { return std::floor(static_cast<double>(value) / kQuartSize) * kQuartSize; };
-    return resolveOverworldBiome(router.sample(quart(x), quart(y), quart(z)));
+    return resolveOverworldBiome(router.sampleBiomeClimate(quart(x), quart(y), quart(z)));
 }
 
 } // namespace mcworld

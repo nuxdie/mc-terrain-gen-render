@@ -40,6 +40,16 @@ using ProfileClock = std::chrono::steady_clock;
     return std::chrono::duration<double>(ProfileClock::now() - started).count();
 }
 
+void addTerrainProfile(TerrainGenerationProfile& total, const TerrainGenerationProfile& chunk) {
+    total.biomeSeconds += chunk.biomeSeconds;
+    total.densitySeconds += chunk.densitySeconds;
+    total.materialSeconds += chunk.materialSeconds;
+    total.carverSeconds += chunk.carverSeconds;
+    total.heightmapSeconds += chunk.heightmapSeconds;
+    total.fluidSeconds += chunk.fluidSeconds;
+    total.chunkCount += chunk.chunkCount;
+}
+
 // Chunks whose decoration can write into the output.
 constexpr int kDecorationSourceHalo = detail::kFeatureWriteRadius;
 
@@ -266,10 +276,18 @@ public:
                 ++profile->terrainChunkCount;
             }
             const auto terrainStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
-            chunks.emplace(chunk, beardifier.empty()
-                ? terrain.generate(chunk.x, chunk.z)
-                : terrain.generate(chunk.x, chunk.z, beardifier));
-            if (profile != nullptr) profile->terrainSeconds += elapsedSeconds(terrainStarted);
+            if (profile != nullptr) {
+                TerrainGenerationProfile chunkProfile;
+                chunks.emplace(chunk, beardifier.empty()
+                    ? terrain.generate(chunk.x, chunk.z, chunkProfile)
+                    : terrain.generate(chunk.x, chunk.z, beardifier, chunkProfile));
+                profile->terrainSeconds += elapsedSeconds(terrainStarted);
+                addTerrainProfile(profile->terrainDetail, chunkProfile);
+            } else {
+                chunks.emplace(chunk, beardifier.empty()
+                    ? terrain.generate(chunk.x, chunk.z)
+                    : terrain.generate(chunk.x, chunk.z, beardifier));
+            }
         });
 
         // Stage 8. Every source runs before any output chunk is harvested,

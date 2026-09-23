@@ -2,6 +2,8 @@
 #include "mcworld/worldgen.hpp"
 #include "noise.hpp"
 
+#include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -45,6 +47,38 @@ void testDeterminism() {
     const mcworld::RouterSample b = second.sample(x, y, z);
     check(a.temperature == b.temperature, "router climate values are deterministic");
     check(a.chunkSurfaceLevel == b.chunkSurfaceLevel, "surface estimate is deterministic");
+}
+
+void testBiomeClimateSampling() {
+    struct SampleCase {
+        std::int64_t seed;
+        double x;
+        double y;
+        double z;
+    };
+    constexpr std::array cases{
+        SampleCase{0, 0, -64, 0},
+        SampleCase{0, 24, 80, -56},
+        SampleCase{1, -4, -4, -4},
+        SampleCase{-1, 1000, 316, -1000},
+        SampleCase{123456789, -120, 12, 240},
+        SampleCase{987654321, 29999996, 64, -29999996},
+    };
+    const auto sameBits = [](float left, float right) {
+        return std::bit_cast<std::uint32_t>(left) == std::bit_cast<std::uint32_t>(right);
+    };
+    for (const auto& testCase : cases) {
+        mcworld::OverworldNoiseRouter fullRouter(testCase.seed);
+        mcworld::OverworldNoiseRouter climateRouter(testCase.seed);
+        const auto full = fullRouter.sample(testCase.x, testCase.y, testCase.z);
+        const auto climate = climateRouter.sampleBiomeClimate(testCase.x, testCase.y, testCase.z);
+        check(sameBits(climate.temperature, full.temperature), "biome temperature matches full router bits");
+        check(sameBits(climate.vegetation, full.vegetation), "biome vegetation matches full router bits");
+        check(sameBits(climate.continentalness, full.continentalness), "biome continentalness matches full router bits");
+        check(sameBits(climate.erosion, full.erosion), "biome erosion matches full router bits");
+        check(sameBits(climate.depth, full.depth), "biome depth matches full router bits");
+        check(sameBits(climate.ridges, full.ridges), "biome ridges match full router bits");
+    }
 }
 
 void testSeedVariationAndBounds() {
@@ -223,6 +257,8 @@ void testKnownDensities() {
 void testInvalidCoordinates() {
     mcworld::OverworldNoiseRouter router(0);
     checkInvalid([&] { (void)router.sample(std::numeric_limits<double>::quiet_NaN(), 0, 0); }, "reject NaN coordinates");
+    checkInvalid([&] { (void)router.sampleBiomeClimate(0, std::numeric_limits<double>::infinity(), 0); },
+                 "biome climate rejects infinite coordinates");
     checkInvalid([&] { (void)router.sampleFinalDensity(0, std::numeric_limits<double>::infinity(), 0); }, "reject infinite coordinates");
     checkInvalid([&] { (void)router.sampleFinalDensity(1.0e30, 0, 0); }, "reject out-of-range coordinates");
     checkInvalid([&] { (void)mcworld::buildChunkIsosurface(router, {std::numeric_limits<int>::max(), 0}); }, "reject overflowing chunks");
@@ -235,6 +271,7 @@ void testInvalidCoordinates() {
 
 int main() {
     testDeterminism();
+    testBiomeClimateSampling();
     testSeedVariationAndBounds();
     testBeardifierInjection();
     testMeshExtraction();

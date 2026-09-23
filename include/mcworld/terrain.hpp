@@ -148,6 +148,18 @@ struct TerrainOptions {
     std::shared_ptr<const BiomeSource> biomes;
 };
 
+// Optional phase-level measurements for terrain generation. Heightmap time is
+// the sum of the three rebuilds between density, materials and carvers.
+struct TerrainGenerationProfile {
+    double biomeSeconds{};
+    double densitySeconds{};
+    double materialSeconds{};
+    double carverSeconds{};
+    double heightmapSeconds{};
+    double fluidSeconds{};
+    std::size_t chunkCount{};
+};
+
 class OverworldTerrainGenerator {
 public:
     // `router` must outlive the generator. The router caches as it samples, so
@@ -160,11 +172,15 @@ public:
 
     // Generating a chunk never depends on which chunks were generated before.
     [[nodiscard]] TerrainChunk generate(int chunkX, int chunkZ);
+    [[nodiscard]] TerrainChunk generate(int chunkX, int chunkZ, TerrainGenerationProfile& profile);
 
     // Stage 5 terrain adaptation is chunk-specific. This overload adds its
     // beard density at the same final-density graph point as the router's own
     // injected Beardifier, without changing the terrain-only API above.
     [[nodiscard]] TerrainChunk generate(int chunkX, int chunkZ, const Beardifier& structures);
+    [[nodiscard]] TerrainChunk generate(
+        int chunkX, int chunkZ, const Beardifier& structures, TerrainGenerationProfile& profile
+    );
 
 private:
     class Impl;

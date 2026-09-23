@@ -32,6 +32,17 @@ struct RouterSample {
     float finalDensity{};
 };
 
+// The six router values consumed by the multi-noise biome source. Sampling
+// this subset avoids evaluating surface level and final density.
+struct BiomeClimateSample {
+    float temperature{};
+    float vegetation{};
+    float continentalness{};
+    float erosion{};
+    float depth{};
+    float ridges{};
+};
+
 class OverworldNoiseRouter {
 public:
     // Sampling populates caches; use a separate router per thread. Injected
@@ -50,6 +61,7 @@ public:
 
     [[nodiscard]] std::int64_t seed() const noexcept;
     [[nodiscard]] RouterSample sample(double x, double y, double z) const;
+    [[nodiscard]] BiomeClimateSample sampleBiomeClimate(double x, double y, double z) const;
     [[nodiscard]] float sampleFinalDensity(double x, double y, double z) const;
     [[nodiscard]] float samplePreliminarySurface(int x, int z) const;
 

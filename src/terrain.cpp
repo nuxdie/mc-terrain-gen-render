@@ -22,6 +22,7 @@
 #include "terrain_internal.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <stdexcept>
 #include <tuple>
@@ -37,6 +38,12 @@ constexpr std::int64_t kCoordinateMargin = 512;
 // Biome palette dimensions, in quart cells.
 constexpr int kPaletteWidth = TerrainChunk::width / detail::kQuartSize;
 constexpr int kPaletteHeight = TerrainChunk::height / detail::kQuartSize;
+
+using ProfileClock = std::chrono::steady_clock;
+
+[[nodiscard]] double elapsedSeconds(ProfileClock::time_point started) {
+    return std::chrono::duration<double>(ProfileClock::now() - started).count();
+}
 
 [[nodiscard]] std::size_t index(int x, int y, int z) {
     if (x < 0 || x >= TerrainChunk::width || z < 0 || z >= TerrainChunk::width ||
@@ -116,7 +123,16 @@ public:
         }
     }
 
-    TerrainChunk generate(int chunkX, int chunkZ, const Beardifier* structures = nullptr) {
+    TerrainChunk generate(
+        int chunkX,
+        int chunkZ,
+        const Beardifier* structures = nullptr,
+        TerrainGenerationProfile* profile = nullptr
+    ) {
+        if (profile != nullptr) {
+            *profile = {};
+            profile->chunkCount = 1;
+        }
         const int originX = checkedOrigin(chunkX);
         const int originZ = checkedOrigin(chunkZ);
 
@@ -124,24 +140,43 @@ public:
         chunk.chunkX = chunkX;
         chunk.chunkZ = chunkZ;
 
+        const auto biomeStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
         fillBiomePalette(chunk, originX, originZ);
+        if (profile != nullptr) profile->biomeSeconds = elapsedSeconds(biomeStarted);
 
         // The aquifer is shared with the carvers below: both passes have to
         // agree on which fluid body a position belongs to.
+        const auto densityStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
         detail::Aquifer aquifer(router_, options_.aquifers);
         fillDensity(chunk, aquifer, originX, originZ, structures);
-        chunk.primeHeightmaps();
+        if (profile != nullptr) profile->densitySeconds = elapsedSeconds(densityStarted);
 
+        auto heightmapStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
+        chunk.primeHeightmaps();
+        if (profile != nullptr) profile->heightmapSeconds += elapsedSeconds(heightmapStarted);
+
+        const auto materialStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
         detail::buildMaterials(chunk, router_, options_.oreVeins,
                                detail::makeBlockBiomeGetter(chunk, router_, *options_.biomes, true));
+        if (profile != nullptr) profile->materialSeconds = elapsedSeconds(materialStarted);
+
+        heightmapStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
         chunk.primeHeightmaps();
+        if (profile != nullptr) profile->heightmapSeconds += elapsedSeconds(heightmapStarted);
 
         if (options_.carvers) {
+            const auto carverStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
             detail::carve(chunk, router_, *options_.biomes, aquifer, options_.oreVeins);
+            if (profile != nullptr) profile->carverSeconds = elapsedSeconds(carverStarted);
         }
-        chunk.primeHeightmaps();
 
+        heightmapStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
+        chunk.primeHeightmaps();
+        if (profile != nullptr) profile->heightmapSeconds += elapsedSeconds(heightmapStarted);
+
+        const auto fluidStarted = profile != nullptr ? ProfileClock::now() : ProfileClock::time_point{};
         compactFluidUpdates(chunk);
+        if (profile != nullptr) profile->fluidSeconds = elapsedSeconds(fluidStarted);
         return chunk;
     }
 
@@ -222,8 +257,20 @@ TerrainChunk OverworldTerrainGenerator::generate(int chunkX, int chunkZ) {
     return impl_->generate(chunkX, chunkZ);
 }
 
+TerrainChunk OverworldTerrainGenerator::generate(
+    int chunkX, int chunkZ, TerrainGenerationProfile& profile
+) {
+    return impl_->generate(chunkX, chunkZ, nullptr, &profile);
+}
+
 TerrainChunk OverworldTerrainGenerator::generate(int chunkX, int chunkZ, const Beardifier& structures) {
     return impl_->generate(chunkX, chunkZ, &structures);
+}
+
+TerrainChunk OverworldTerrainGenerator::generate(
+    int chunkX, int chunkZ, const Beardifier& structures, TerrainGenerationProfile& profile
+) {
+    return impl_->generate(chunkX, chunkZ, &structures, &profile);
 }
 
 } // namespace mcworld

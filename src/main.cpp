@@ -333,6 +333,16 @@ int main(int argc, char** argv) {
                       << " terrain_chunks=" << generationProfile->terrainChunkCount
                       << " decoration_chunks=" << generationProfile->decorationChunkCount
                       << " output_chunks=" << generationProfile->outputChunkCount;
+            const auto& terrainProfile = generationProfile->terrainDetail;
+            std::cout << '\n'
+                      << "terrain_profile="
+                      << "biomes:" << terrainProfile.biomeSeconds << 's'
+                      << " density_aquifers:" << terrainProfile.densitySeconds << 's'
+                      << " materials:" << terrainProfile.materialSeconds << 's'
+                      << " carvers:" << terrainProfile.carverSeconds << 's'
+                      << " heightmaps:" << terrainProfile.heightmapSeconds << 's'
+                      << " fluid_cleanup:" << terrainProfile.fluidSeconds << 's'
+                      << " chunks:" << terrainProfile.chunkCount;
         }
         std::cout << '\n';
 
