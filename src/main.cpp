@@ -3,6 +3,7 @@
 // or exposed voxel faces.
 
 #include "mcworld/worldgen.hpp"
+#include "mcworld/schematic.hpp"
 #include "mcworld/structure_templates.hpp"
 #include "voxel_renderer.hpp"
 
@@ -41,6 +42,7 @@ struct Options {
 #else
     std::string templates;
 #endif
+    std::string exportPath;
 };
 
 // --- Command line ----------------------------------------------------------
@@ -57,7 +59,7 @@ Number parseNumber(std::string_view text, std::string_view option) {
 
 void printUsage(const char* executable) {
     std::cout
-        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--chunks N] [--threads N] [--voxel] [--terrain-only] [--headless]\n"
+        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--chunks N] [--threads N] [--voxel] [--terrain-only] [--headless] [--export FILE.schem]\n"
         << "\n"
         << "Renders Minecraft 26.3 standard Overworld terrain as a smooth mesh or voxel blocks.\n"
         << "--chunks N: N x N area around the selected chunk (default 8, range 1..16).\n"
@@ -65,6 +67,7 @@ void printUsage(const char* executable) {
         << "--voxel: start in voxel mode; with --headless, build only the voxel mesh.\n"
         << "--terrain-only: skip structure and feature finalization.\n"
         << "--templates FILE: load a generated Minecraft structure catalog (.mcwc).\n"
+        << "--export FILE.schem: save the generated area as a Sponge schematic (WorldEdit, voxel-viewer).\n"
         << "WASD + mouse: fly; Space/Ctrl: up/down; Shift: 4x speed.\n";
 }
 
@@ -104,6 +107,8 @@ Options parseOptions(int argc, char** argv) {
             options.threads = parseNumber<unsigned>(value, argument);
         } else if (argument == "--templates") {
             options.templates = value;
+        } else if (argument == "--export") {
+            options.exportPath = value;
         } else {
             throw std::invalid_argument("Unknown option: " + std::string(argument));
         }
@@ -380,6 +385,17 @@ int main(int argc, char** argv) {
                       << " chunks:" << terrainProfile.chunkCount;
         }
         std::cout << '\n';
+
+        if (!options.exportPath.empty()) {
+            std::vector<const mcworld::TerrainChunk*> chunks;
+            for (int z = 0; z < options.chunks; ++z) {
+                for (int x = 0; x < options.chunks; ++x) {
+                    chunks.push_back(&terrain.chunk(firstChunkX + x, firstChunkZ + z));
+                }
+            }
+            mcworld::writeSpongeSchematic(options.exportPath, chunks, options.chunks, options.chunks);
+            std::cout << "exported_schematic=" << options.exportPath << '\n';
+        }
 
         viewer::SmoothTerrainMesh surface;
         double surfaceSeconds = 0.0;

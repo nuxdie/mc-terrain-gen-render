@@ -118,6 +118,26 @@ opaque textured material; lighting is presentation-only. Headless
 output reports `mesh_triangles` and, with `--voxel`, `solid_blocks`,
 `water_blocks`, `lava_blocks`, and `voxel_faces`.
 
+### Export to a schematic
+
+`--export FILE.schem` saves the visible area (the `--chunks` square, without the
+generation halo) as a Sponge schematic, version 2. WorldEdit and
+[voxel-viewer](https://github.com/nuxdie/voxel-viewer) open it directly. It works
+with or without `--headless`:
+
+```sh
+./build/terrain_viewer --seed 12345 --chunks 4 --headless --voxel --export area.schem
+voxel-viewer area.schem
+```
+
+The Y range is trimmed to the lowest and highest non-air blocks, and the
+`Offset` field records the world position of the schematic origin. Imported
+block states from structure templates and plants (for example
+`minecraft:oak_log[axis=x]`) are kept; other materials use their plain block ID.
+Block entities, biomes and entities are not exported. The file is valid gzip,
+but it uses stored (uncompressed) deflate blocks so the library needs no zlib,
+which makes it larger than WorldEdit's own output.
+
 ### Faithful 32x textures
 
 Viewer builds download the Faithful 32x September 2026 release for Minecraft
@@ -199,6 +219,16 @@ const auto& generated = area.at(0, 0);
 auto block = generated.terrain.at(8, 64, 8);
 auto starts = generated.starts;
 auto references = generated.references;
+```
+
+`writeSpongeSchematic` from `<mcworld/schematic.hpp>` saves a generated area
+(or any contiguous row-major list of `TerrainChunk`s) as a `.schem` file:
+
+```cpp
+#include <mcworld/schematic.hpp>
+
+std::ofstream file("area.schem", std::ios::binary);
+mcworld::writeSpongeSchematic(file, area);
 ```
 
 `GenerationOptions` independently controls structure metadata/adaptation and

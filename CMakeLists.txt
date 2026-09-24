@@ -27,6 +27,7 @@ add_library(mcworld
     src/features.cpp
     src/vegetation.cpp
     src/plant_features.cpp
+    src/schematic.cpp
 )
 add_library(mcworld::mcworld ALIAS mcworld)
 
@@ -144,6 +145,10 @@ if(MCWORLD_BUILD_TESTS)
     target_link_libraries(generation_tests PRIVATE mcworld::mcworld)
     target_include_directories(generation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME generation_tests COMMAND generation_tests)
+    add_executable(schematic_tests tests/schematic_tests.cpp)
+    target_compile_features(schematic_tests PRIVATE cxx_std_20)
+    target_link_libraries(schematic_tests PRIVATE mcworld::mcworld)
+    add_test(NAME schematic_tests COMMAND schematic_tests)
     if(MCWORLD_GAME_JAR)
         add_dependencies(generation_tests mcworld_template_assets)
         add_test(NAME imported_structure_tests COMMAND generation_tests --catalog "${MCWORLD_TEMPLATE_CATALOG}")
@@ -168,6 +173,8 @@ if(MCWORLD_BUILD_TESTS)
             PASS_REGULAR_EXPRESSION "solid_blocks=[1-9][0-9]* water_blocks=[0-9]+ lava_blocks=[0-9]+ voxel_faces=[1-9][0-9]*"
             FAIL_REGULAR_EXPRESSION "mesh_triangles="
         )
+        add_test(NAME viewer_export_headless COMMAND terrain_viewer --seed 12345 --chunks 1 --voxel --terrain-only --headless --export "${CMAKE_CURRENT_BINARY_DIR}/viewer_export.schem")
+        set_tests_properties(viewer_export_headless PROPERTIES PASS_REGULAR_EXPRESSION "exported_schematic=")
         add_test(NAME viewer_invalid_chunk COMMAND terrain_viewer --chunk-x 2147483647 --headless)
         set_tests_properties(viewer_invalid_chunk PROPERTIES WILL_FAIL TRUE)
         add_test(NAME viewer_invalid_area COMMAND terrain_viewer --chunks 0 --headless)

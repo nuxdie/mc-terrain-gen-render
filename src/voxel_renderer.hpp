@@ -67,8 +67,10 @@ public:
     );
     [[nodiscard]] VoxelMesh buildMesh(int chunkX, int chunkZ);
 
-private:
+    // A prepared chunk, or stage-7B terrain generated on demand.
     [[nodiscard]] const mcworld::TerrainChunk& chunk(int x, int z);
+
+private:
     [[nodiscard]] SmoothTerrainMesh buildSmoothMesh(
         int chunkX, int chunkZ, const mcworld::OverworldNoiseRouter& router, bool preparedOnly
     );
