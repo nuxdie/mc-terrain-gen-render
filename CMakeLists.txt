@@ -1,17 +1,14 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(mc_terrain_gen_render VERSION 0.1.0 LANGUAGES CXX)
+project(mc_worldgen VERSION 0.1.0 LANGUAGES CXX)
 
-option(MCWORLD_BUILD_VIEWER "Build the interactive Raylib viewer" ON)
 option(MCWORLD_BUILD_TESTS "Build unit tests" ON)
 set(MCWORLD_GAME_JAR "" CACHE FILEPATH "Local Minecraft 26.3 game JAR to import structure resources from")
-option(MCWORLD_FETCH_FAITHFUL_TEXTURES "Download Faithful 32x textures for the viewer" ON)
 
 add_library(mcworld
     src/noise.cpp
     src/spline.cpp
     src/worldgen.cpp
-    src/isosurface.cpp
     src/biome.cpp
     src/biome_environment.cpp
     src/terrain.cpp
@@ -57,75 +54,12 @@ else()
     target_compile_options(mcworld PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-if(MCWORLD_BUILD_VIEWER)
-    include(FetchContent)
-    set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(
-        raylib
-        GIT_REPOSITORY https://github.com/raysan5/raylib.git
-        GIT_TAG c1ab645ca298a2801097931d1079b10ff7eb9df8 # 5.5
-    )
-    FetchContent_MakeAvailable(raylib)
-
-    add_executable(terrain_viewer src/main.cpp src/voxel_renderer.cpp)
-    target_compile_features(terrain_viewer PRIVATE cxx_std_20)
-    target_link_libraries(terrain_viewer PRIVATE mcworld::mcworld raylib)
-    if(MCWORLD_GAME_JAR)
-        add_dependencies(terrain_viewer mcworld_template_assets)
-        target_compile_definitions(terrain_viewer PRIVATE MCWORLD_DEFAULT_TEMPLATE_CATALOG="${MCWORLD_TEMPLATE_CATALOG}")
-    endif()
-
-    if(MCWORLD_FETCH_FAITHFUL_TEXTURES)
-        set(FAITHFUL_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/_faithful-32x/Faithful-32x-26.3.zip")
-        set(FAITHFUL_EXTRACT_DIR "${CMAKE_CURRENT_BINARY_DIR}/_faithful-32x/extracted")
-        set(FAITHFUL_SHA512 "e90ec63af7f239dbb99aa20c98b23d830e76898f65d3e31b7f0b53bb36db12dcd8c38d6930c743237c9c3db7bf708423fa1d1b2fd497dd6c281dbe216b779db9")
-        if(EXISTS "${FAITHFUL_ARCHIVE}")
-            file(SHA512 "${FAITHFUL_ARCHIVE}" FAITHFUL_ARCHIVE_SHA512)
-        endif()
-        if(NOT FAITHFUL_ARCHIVE_SHA512 STREQUAL FAITHFUL_SHA512)
-            file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/_faithful-32x")
-            file(DOWNLOAD
-                "https://cdn.modrinth.com/data/w0TnApzs/versions/lDYpMiqk/Faithful%2032x%20-%2026.3.zip"
-                "${FAITHFUL_ARCHIVE}"
-                EXPECTED_HASH SHA512=${FAITHFUL_SHA512}
-                STATUS FAITHFUL_DOWNLOAD_STATUS
-                SHOW_PROGRESS
-            )
-            list(GET FAITHFUL_DOWNLOAD_STATUS 0 FAITHFUL_DOWNLOAD_ERROR)
-            if(NOT FAITHFUL_DOWNLOAD_ERROR EQUAL 0)
-                list(GET FAITHFUL_DOWNLOAD_STATUS 1 FAITHFUL_DOWNLOAD_MESSAGE)
-                message(FATAL_ERROR "Could not download Faithful 32x: ${FAITHFUL_DOWNLOAD_MESSAGE}")
-            endif()
-        endif()
-
-        set(FAITHFUL_BLOCK_TEXTURES
-            bedrock calcite cinnabar coarse_dirt copper_ore deepslate deepslate_iron_ore deepslate_top
-            dirt granite grass_block_side grass_block_top gravel ice lava_still light_gray_terracotta mud
-            mycelium_side mycelium_top orange_terracotta packed_ice podzol_side podzol_top powder_snow
-            raw_copper_block raw_iron_block red_sand red_sandstone red_sandstone_bottom red_sandstone_top
-            red_terracotta sand sandstone sandstone_bottom sandstone_top snow stone sulfur terracotta tuff
-            water_still white_terracotta yellow_terracotta brown_terracotta
-            coal_ore iron_ore gold_ore redstone_ore diamond_ore lapis_ore clay
-            oak_log oak_log_top oak_leaves oak_planks cobblestone mossy_cobblestone bricks
-            diorite andesite emerald_ore deepslate_coal_ore deepslate_gold_ore
-            deepslate_redstone_ore deepslate_diamond_ore deepslate_lapis_ore
-            deepslate_copper_ore deepslate_emerald_ore
-        )
-        set(FAITHFUL_TEXTURE_PATTERNS)
-        foreach(TEXTURE IN LISTS FAITHFUL_BLOCK_TEXTURES)
-            list(APPEND FAITHFUL_TEXTURE_PATTERNS "assets/minecraft/textures/block/${TEXTURE}.png")
-        endforeach()
-        file(ARCHIVE_EXTRACT
-            INPUT "${FAITHFUL_ARCHIVE}"
-            DESTINATION "${FAITHFUL_EXTRACT_DIR}"
-            PATTERNS ${FAITHFUL_TEXTURE_PATTERNS}
-        )
-        target_compile_definitions(terrain_viewer PRIVATE
-            MCWORLD_FAITHFUL_TEXTURE_DIR="${FAITHFUL_EXTRACT_DIR}/assets/minecraft/textures/block"
-        )
-    endif()
-
+add_executable(terrain_gen src/main.cpp)
+target_compile_features(terrain_gen PRIVATE cxx_std_20)
+target_link_libraries(terrain_gen PRIVATE mcworld::mcworld)
+if(MCWORLD_GAME_JAR)
+    add_dependencies(terrain_gen mcworld_template_assets)
+    target_compile_definitions(terrain_gen PRIVATE MCWORLD_DEFAULT_TEMPLATE_CATALOG="${MCWORLD_TEMPLATE_CATALOG}")
 endif()
 
 if(MCWORLD_BUILD_TESTS)
@@ -156,30 +90,6 @@ if(MCWORLD_BUILD_TESTS)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME template_importer_tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/template_importer_tests.py" "$<TARGET_FILE:generation_tests>")
-    endif()
-    if(MCWORLD_BUILD_VIEWER)
-        add_executable(viewer_mesh_tests tests/viewer_mesh_tests.cpp src/voxel_renderer.cpp)
-        target_compile_features(viewer_mesh_tests PRIVATE cxx_std_20)
-        target_include_directories(viewer_mesh_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-        target_link_libraries(viewer_mesh_tests PRIVATE mcworld::mcworld raylib)
-        add_test(NAME viewer_mesh_tests COMMAND viewer_mesh_tests)
-        add_test(NAME viewer_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 1 --terrain-only --headless)
-        set_tests_properties(viewer_headless PROPERTIES
-            PASS_REGULAR_EXPRESSION "mesh_triangles=[1-9][0-9]*"
-            FAIL_REGULAR_EXPRESSION "voxel_faces="
-        )
-        add_test(NAME viewer_voxel_headless COMMAND terrain_viewer --seed 12345 --chunk-x -1 --chunk-z 2 --chunks 2 --voxel --terrain-only --headless)
-        set_tests_properties(viewer_voxel_headless PROPERTIES
-            PASS_REGULAR_EXPRESSION "solid_blocks=[1-9][0-9]* water_blocks=[0-9]+ lava_blocks=[0-9]+ voxel_faces=[1-9][0-9]*"
-            FAIL_REGULAR_EXPRESSION "mesh_triangles="
-        )
-        add_test(NAME viewer_export_headless COMMAND terrain_viewer --seed 12345 --chunks 1 --voxel --terrain-only --headless --export "${CMAKE_CURRENT_BINARY_DIR}/viewer_export.schem")
-        set_tests_properties(viewer_export_headless PROPERTIES PASS_REGULAR_EXPRESSION "exported_schematic=")
-        add_test(NAME viewer_invalid_chunk COMMAND terrain_viewer --chunk-x 2147483647 --headless)
-        set_tests_properties(viewer_invalid_chunk PROPERTIES WILL_FAIL TRUE)
-        add_test(NAME viewer_invalid_area COMMAND terrain_viewer --chunks 0 --headless)
-        set_tests_properties(viewer_invalid_area PROPERTIES WILL_FAIL TRUE)
-        add_test(NAME viewer_invalid_threads COMMAND terrain_viewer --threads 0 --headless)
-        set_tests_properties(viewer_invalid_threads PROPERTIES WILL_FAIL TRUE)
+        add_test(NAME generation_cli_tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/generation_cli_tests.py" "$<TARGET_FILE:terrain_gen>")
     endif()
 endif()

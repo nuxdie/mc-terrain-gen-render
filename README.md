@@ -1,9 +1,11 @@
-# Minecraft 26.3 Overworld terrain viewer
+# Minecraft 26.3 Overworld worldgen
 
 A C++20 graph-level implementation of Overworld structure starts/references (5),
 biome lookup (6), density and terrain generation (7A/7B), and decoration (8) in
-`minecraft-26.3-worldgen.dot`. The Raylib viewer displays an 8×8 chunk area as
-either a smooth mesh of the generated terrain or generated voxel blocks.
+`minecraft-26.3-worldgen.dot`. This repository provides the `mcworld` library
+and a headless `terrain_gen` CLI. Export generated blocks as `.schem` files and
+render them with [voxel-viewer](https://github.com/nuxdie/voxel-viewer), located
+in `../voxel-viewer` in the local workspace.
 
 This is a graph-level implementation, not a bit-for-bit or seed-compatible Java port.
 It keeps the Minecraft 26.3 graph, constants, terrain splines, cave branches,
@@ -16,8 +18,8 @@ in Minecraft.
 
 ## Build
 
-CMake downloads the pinned Raylib 5.5 source and the hash-pinned Faithful 32x
-26.3 resource pack when the viewer is enabled.
+Requires CMake 3.24+ and a C++20 compiler with thread support. The default build
+has no graphics dependencies or downloads. Python 3 enables importer and CLI tests.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -25,13 +27,7 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-For a headless library and test build:
-
-```sh
-cmake -S . -B build-headless -DMCWORLD_BUILD_VIEWER=OFF
-cmake --build build-headless -j
-ctest --test-dir build-headless --output-on-failure
-```
+All builds are headless. Set `-DMCWORLD_BUILD_TESTS=OFF` to omit tests.
 
 ### Import Minecraft structure assets
 
@@ -43,7 +39,7 @@ cmake --build build -j
 ```
 
 This uses Python's standard library to import the five village variants and
-ancient-city template/pool dependencies into `build/structures.mcwc`. The viewer
+ancient-city template/pool dependencies into `build/structures.mcwc`. The CLI
 loads that catalog by default. Game assets stay in the ignored build directory.
 The library build without `MCWORLD_GAME_JAR` retains its dependency-free path.
 
@@ -51,83 +47,62 @@ Alternatively, import a game JAR or extracted resources explicitly:
 
 ```sh
 python3 tools/import_worldgen.py /path/to/minecraft-26.3.jar build/structures.mcwc
-./build/terrain_viewer --templates build/structures.mcwc --seed 12345 --voxel
+./build/terrain_gen --templates build/structures.mcwc --seed 12345 --export area.schem
 ```
 
 A confirmed asset-backed village in this port's current terrain is at seed
 `12345`, chunk `(-58, -53)`:
 
 ```sh
-./build/terrain_viewer --templates build/structures.mcwc --seed 12345 --chunk-x -58 --chunk-z -53 --chunks 3 --voxel
+./build/terrain_gen --templates build/structures.mcwc --seed 12345 --chunk-x -58 --chunk-z -53 --chunks 3 --export village.schem
 ```
 
 The importer records unsupported processors, feature-pool algorithms, template
-entities, and missing resources in the catalog; the viewer prints their count.
+entities, and missing resources in the catalog; the CLI prints their count.
 This is asset-backed structure generation, **not complete vanilla parity**.
 
 ## Run
 
 ```sh
-./build/terrain_viewer --seed 12345 --chunk-x 0 --chunk-z 0
+./build/terrain_gen --seed 12345 --chunk-x 0 --chunk-z 0 --chunks 4 --export area.schem
+../voxel-viewer/build/voxel-viewer area.schem
 ```
 
-The viewer generates a fixed 8×8 area around `--chunk-x` / `--chunk-z`.
+The generator defaults to an 8×8 area around `--chunk-x` / `--chunk-z`.
 Use `--chunks N` (1–16) for an N×N area, or `--chunks 1` for a single chunk.
 Each axis runs from `center - N/2` (integer division) through `center - N/2 + N - 1`;
 the default at (0, 0) covers chunks -4 through 3 on both axes (128×128 blocks).
-The area is generated at startup and does not stream as the camera moves.
-Finalized terrain generation and smooth meshing use up to eight workers by
-default. Use `--threads N` (1–64) to tune them for the machine; `--threads 1`
-keeps both serial.
+Terrain generation uses up to eight workers by default. Use `--threads N`
+(1–64) to tune it for the machine; `--threads 1` keeps generation serial.
+Structure/feature finalization needs a two-chunk dependency halo beyond the
+output area. Use `--terrain-only` for the faster independent stage-7B path,
+without structures, decoration, or their dependency halo.
 
-Use `--headless` to generate the complete mesh and print statistics without
-opening a window. Combine it with `--voxel` to also generate and report voxel
-statistics without opening a window.
+The CLI always prints phase timings and output-area `solid_blocks`,
+`water_blocks`, and `lava_blocks` counts. Omit `--export` to generate statistics
+without writing a file. Use `--help` for the complete CLI reference.
 
-Use `--voxel` to start in the block-style view:
+Build the sibling viewer separately following its README. It owns camera
+controls, lighting, materials, and all meshing/render modes. For smooth rendering:
 
 ```sh
-./build/terrain_viewer --seed 12345 --chunk-x 0 --chunk-z 0 --voxel
+../voxel-viewer/build/voxel-viewer --smooth area.schem
 ```
 
-Structure/feature finalization needs a two-chunk dependency halo beyond the
-visible area. Use `--terrain-only` for the faster independent stage-7B path.
-
-Controls:
-
-- `WASD` and mouse: free camera at 40 blocks/second
-- Hold `Shift`: boost flight speed to 160 blocks/second
-- `Space` / left `Ctrl`: fly up / down
-- `V`: switch between the smooth terrain mesh and voxel blocks
-- `F`: toggle wireframe
-- `Tab`: release or capture the cursor (camera input pauses while released)
-- `Esc`: exit
-
-Both views use the final generated terrain blocks. The smooth view runs marching
-tetrahedra over the continuous density field. Final generated blocks supply a
-3-D filtered density correction for carvers, aquifer barriers, and material
-extensions. Only that correction is filtered, leaving unedited 7A density intact.
-The reconstruction rounds rasterized carve boundaries rather than pinning every
-crossing to a block edge; one-block details can be rounded off. Crossings use the
-generated solid material. Separate water/lava surfaces preserve submerged ocean
-floors and cave walls; the voxel view emits block faces. Generated neighboring chunks provide
-consistent mesh samples and suppress internal voxel boundary faces. Both views
-map the generated block material to Faithful textures; the smooth mesh uses
-per-block planar projection over its curved triangles. Fluids are rendered as
-opaque textured material; lighting is presentation-only. Headless
-output reports `mesh_triangles` and, with `--voxel`, `solid_blocks`,
-`water_blocks`, `lava_blocks`, and `voxel_faces`.
+The former `terrain_viewer` executable, `--voxel`/`--headless` flags,
+`MCWORLD_BUILD_VIEWER`/`MCWORLD_FETCH_FAITHFUL_TEXTURES` build options, and
+`mcworld/isosurface.hpp` mesh API have been removed. Use `terrain_gen` for
+generation and voxel-viewer for presentation.
 
 ### Export to a schematic
 
-`--export FILE.schem` saves the visible area (the `--chunks` square, without the
+`--export FILE.schem` saves the output area (the `--chunks` square, without the
 generation halo) as a Sponge schematic, version 2. WorldEdit and
-[voxel-viewer](https://github.com/nuxdie/voxel-viewer) open it directly. It works
-with or without `--headless`:
+[voxel-viewer](https://github.com/nuxdie/voxel-viewer) open it directly:
 
 ```sh
-./build/terrain_viewer --seed 12345 --chunks 4 --headless --voxel --export area.schem
-voxel-viewer area.schem
+./build/terrain_gen --seed 12345 --chunks 4 --export area.schem
+../voxel-viewer/build/voxel-viewer area.schem
 ```
 
 The Y range is trimmed to the lowest and highest non-air blocks, and the
@@ -138,22 +113,7 @@ Block entities, biomes and entities are not exported. The file is valid gzip,
 but it uses stored (uncompressed) deflate blocks so the library needs no zlib,
 which makes it larger than WorldEdit's own output.
 
-### Faithful 32x textures
-
-Viewer builds download the Faithful 32x September 2026 release for Minecraft
-26.3 from its [official Modrinth listing](https://modrinth.com/resourcepack/faithful-32x).
-The archive is SHA-512 verified, stored under the build directory, and only the
-44 block texture files used by the stage 7B terrain palette are extracted. It is
-not committed to this repository. Configure with
-`-DMCWORLD_FETCH_FAITHFUL_TEXTURES=OFF` to use generated fallback textures and
-avoid this download after Raylib is available.
-
-Textures are from **Faithful 32x** by the Faithful Resource Pack project:
-[faithfulpack.net](https://faithfulpack.net). They are used under the
-[Faithful License](https://faithfulpack.net/license). Faithful is not affiliated
-with or endorsed by this project.
-
-Generation includes:
+## Generation coverage
 
 - Java-seeded random-spread starts for graph-level villages, mineshafts, ruined
   portals, and ancient cities, with weighted biome-eligible variant retries;
@@ -263,8 +223,7 @@ This remains a graph-level implementation, not a vanilla parity claim:
   registry. Imported state names/properties and block-entity NBT payloads (including
   loot-table references) are retained in `TerrainChunk::blockData`, accessible
   through `dataAt()`. Facing/axis/rotation and directional connection properties
-  rotate with templates. The viewer still uses material/cube approximations for
-  many states, and block-entity behavior, loot filling, and simulation are absent.
+   rotate with templates. Block-entity behavior, loot filling, and simulation are absent.
   Motion heightmaps follow the
   supported blocks' tags, including powder-snow and leaf exclusions.
 - This generator covers new, normal Overworld chunks. Saved-world retrogen,
@@ -295,11 +254,9 @@ Router instances cache samples and must be used by one thread at a time, with
 stable blending/beardifier inputs. Invalid or out-of-range sampling coordinates
 throw `std::invalid_argument`.
 
-The public 7A density extractor produces chunk-local X/Z positions and world Y.
-It accepts Y bounds within `[-64, 320]` and samples a one-block halo for
-consistent boundary normals. Its meshes are open at chunk boundaries. The
-viewer instead meshes final 7B blocks and starts above the selected area's
-highest generated surface, with framing scaled to the area size.
+The library returns density samples and generated blocks. Schematic export is
+the file boundary to external rendering; this repository contains no mesh
+extraction, graphics backend, or texture assets.
 
 ## Working on the density graph
 
@@ -312,7 +269,6 @@ highest generated surface, with framing scaled to the area size.
 | `noise.cpp` | Perlin, `NormalNoise` octave stacks, and the base 3-D `BlendedNoise`. |
 | `spline.cpp` | `TerrainProvider` cubic splines for offset, factor and jaggedness. |
 | `worldgen.cpp` | The router itself: climate, sloped cheese, caves, slides, noodles. |
-| `isosurface.cpp` | Marching tetrahedra over the final density field. |
 | `biome.cpp` | Standard Overworld climate intervals and nearest-point lookup. |
 | `biome_environment.cpp` | Block-biome zoom and fixed-seed frozen-ocean temperatures. |
 | `terrain_internal.hpp` | The contract between the 7B passes; not part of the public API. |
@@ -330,6 +286,8 @@ highest generated surface, with framing scaled to the area size.
 | `vegetation.cpp` | Straight/forked trunks, foliage algorithms, leaf distances, and village block piles. |
 | `plant_features.cpp` | Village vegetation patches, cactus columns, and the fixed-seed plains-flower noise provider. |
 | `generation.cpp` | Stage 5/8 pass orchestration, area planning, and the shared value types. |
+| `schematic.cpp` | Dependency-free Sponge schematic export. |
+| `main.cpp` | Headless generation/export CLI. |
 
 Generation is float arithmetic, so it is sensitive in ways ordinary code is
 not: re-associating a product, widening an intermediate to `double`, renaming a
@@ -340,7 +298,7 @@ audited against the Java source individually.
 `testKnownDensities` in `tests/worldgen_tests.cpp` pins recorded outputs with a
 small tolerance and catches ordinary breakage. It will not catch a change of a
 few ULP. When refactoring this code for real, dump a large sample of
-`sampleFinalDensity`, the full `RouterSample` and the extracted mesh as raw
+`sampleFinalDensity` and the full `RouterSample` as raw
 float bit patterns before and after, and require the two dumps to be identical;
 that is how the current structure was verified against its predecessor.
 
@@ -365,6 +323,5 @@ the feature dependency graph, depth-first/nested RNG consumption, Java-derived
 ore masks, weighted variant retries, template pool assembly/placement, processors,
 and jigsaw-junction density.
 
-The smooth and voxel views are two presentations of the same finalized stage
-5-through-8 block result. The standalone `buildChunkIsosurface` API remains
-available for inspecting the raw 7A density field.
+`tests/generation_cli_tests.py` checks CLI validation, terrain-only/finalized
+exports, schematic contents, and deterministic exports across worker counts.

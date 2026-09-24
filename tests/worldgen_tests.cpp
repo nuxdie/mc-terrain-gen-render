@@ -1,4 +1,3 @@
-#include "mcworld/isosurface.hpp"
 #include "mcworld/worldgen.hpp"
 #include "noise.hpp"
 
@@ -107,17 +106,6 @@ void testBeardifierInjection() {
     check(std::abs(difference - 0.25F) < 1.0e-6F, "beardifier contribution is added after final-density selection");
 }
 
-void testMeshExtraction() {
-    mcworld::OverworldNoiseRouter router(0);
-    const mcworld::SurfaceMesh mesh = mcworld::buildChunkIsosurface(router);
-    check(mesh.vertices.size() % 3 == 0, "surface mesh contains complete triangles");
-    check(!mesh.vertices.empty(), "surface extraction produces terrain near sea level");
-    for (const mcworld::SurfaceVertex& vertex : mesh.vertices) {
-        check(std::isfinite(vertex.x) && std::isfinite(vertex.y) && std::isfinite(vertex.z), "mesh positions are finite");
-        check(std::isfinite(vertex.nx) && std::isfinite(vertex.ny) && std::isfinite(vertex.nz), "mesh normals are finite");
-    }
-}
-
 template <typename Action>
 void checkInvalid(Action action, std::string_view message) {
     try {
@@ -149,43 +137,6 @@ void testNoise() {
         + b.sample(3 * 1.0181268882175227, 4 * 1.0181268882175227, 5 * 1.0181268882175227));
     check(std::abs(single.sample(3, 4, 5) - expected) < 1.0e-6F,
         "single-octave parity normalization matches the Java reference");
-}
-
-class SolidBlend final : public mcworld::BlendSampler {
-public:
-    float applyDensity(double, double, double, float) const override { return -1000.0F; }
-};
-
-class PlaneBeardifier final : public mcworld::Beardifier {
-public:
-    float sample(double x, double y, double z) const override {
-        return static_cast<float>(8 + x * 0.25 + z * 0.125 - y) + 11.0F / 24.0F;
-    }
-};
-
-void testPlanarMesh() {
-    mcworld::OverworldNoiseRouter router(0, std::make_shared<SolidBlend>(), std::make_shared<PlaneBeardifier>());
-    // Two adjacent chunks, including negative coordinates and lattice-aligned intersections.
-    for (int chunkX : {-1, 0}) {
-        const auto mesh = mcworld::buildChunkIsosurface(router, {chunkX, 0, 0, 32});
-        check(!mesh.vertices.empty(), "analytic plane produces a mesh");
-        const float length = std::sqrt(1.0F + 0.25F * 0.25F + 0.125F * 0.125F);
-        for (const auto& v : mesh.vertices) {
-            check(std::abs(v.y - (8 + (v.x + chunkX * 16) * 0.25F + v.z * 0.125F)) < 1.0e-5F,
-                "mesh vertices lie on the analytic plane");
-            check(std::abs(v.nx + 0.25F / length) < 1.0e-5F
-                && std::abs(v.ny - 1.0F / length) < 1.0e-5F
-                && std::abs(v.nz + 0.125F / length) < 1.0e-5F,
-                "central-difference normals remain correct at chunk boundaries");
-        }
-        for (std::size_t i = 0; i < mesh.vertices.size(); i += 3) {
-            const auto& a = mesh.vertices[i];
-            const auto& b = mesh.vertices[i + 1];
-            const auto& c = mesh.vertices[i + 2];
-            const float crossY = (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z);
-            check(crossY > 0, "plane triangles are nondegenerate and outward-facing");
-        }
-    }
 }
 
 // Characterization test: these values were recorded from a build that was
@@ -263,9 +214,6 @@ void testInvalidCoordinates() {
                  "biome climate rejects infinite coordinates");
     checkInvalid([&] { (void)router.sampleFinalDensity(0, std::numeric_limits<double>::infinity(), 0); }, "reject infinite coordinates");
     checkInvalid([&] { (void)router.sampleFinalDensity(1.0e30, 0, 0); }, "reject out-of-range coordinates");
-    checkInvalid([&] { (void)mcworld::buildChunkIsosurface(router, {std::numeric_limits<int>::max(), 0}); }, "reject overflowing chunks");
-    checkInvalid([&] { (void)mcworld::buildChunkIsosurface(router, {0, 0, std::numeric_limits<int>::min(), std::numeric_limits<int>::max()}); }, "reject overflowing height ranges");
-    checkInvalid([&] { (void)mcworld::buildChunkIsosurface(router, {0, 0, -64, 320, std::numeric_limits<float>::quiet_NaN()}); }, "reject NaN isolevel");
     check(std::isfinite(router.sampleFinalDensity(29999999, 64, -29999999)), "world-border sampling is finite");
 }
 
@@ -276,10 +224,8 @@ int main() {
     testBiomeClimateSampling();
     testSeedVariationAndBounds();
     testBeardifierInjection();
-    testMeshExtraction();
     testNoise();
     testKnownDensities();
-    testPlanarMesh();
     testInvalidCoordinates();
     if (failures != 0) {
         std::cerr << failures << " test assertion(s) failed\n";

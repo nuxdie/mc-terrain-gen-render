@@ -1,29 +1,19 @@
-// Interactive viewer for generated Minecraft 26.3 Overworld terrain. It runs
-// stages 5 through 8, then presents the final blocks as a smooth surface mesh
-// or exposed voxel faces.
-
-#include "mcworld/worldgen.hpp"
+// Headless Minecraft 26.3 Overworld generation and Sponge schematic export.
+#include "mcworld/generation.hpp"
 #include "mcworld/schematic.hpp"
 #include "mcworld/structure_templates.hpp"
-#include "voxel_renderer.hpp"
-
-#include <raylib.h>
-#include <raymath.h>
 
 #include <algorithm>
 #include <charconv>
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
-#include <utility>
 #include <vector>
 
 namespace {
@@ -34,8 +24,6 @@ struct Options {
     int chunkZ{0};
     int chunks{8};
     unsigned threads{std::clamp(std::thread::hardware_concurrency(), 1U, 8U)};
-    bool headless{false};
-    bool voxel{false};
     bool terrainOnly{false};
 #ifdef MCWORLD_DEFAULT_TEMPLATE_CATALOG
     std::string templates{MCWORLD_DEFAULT_TEMPLATE_CATALOG};
@@ -44,8 +32,6 @@ struct Options {
 #endif
     std::string exportPath;
 };
-
-// --- Command line ----------------------------------------------------------
 
 template <typename Number>
 Number parseNumber(std::string_view text, std::string_view option) {
@@ -59,16 +45,17 @@ Number parseNumber(std::string_view text, std::string_view option) {
 
 void printUsage(const char* executable) {
     std::cout
-        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--chunks N] [--threads N] [--voxel] [--terrain-only] [--headless] [--export FILE.schem]\n"
-        << "\n"
-        << "Renders Minecraft 26.3 standard Overworld terrain as a smooth mesh or voxel blocks.\n"
+        << "Usage: " << executable << " [--seed N] [--chunk-x N] [--chunk-z N] [--chunks N]\n"
+        << "       [--threads N] [--terrain-only] [--templates FILE.mcwc] [--export FILE.schem]\n\n"
+        << "Generates Minecraft 26.3 graph-level Overworld terrain without rendering.\n"
+        << "--seed N: signed 64-bit world seed (default 0).\n"
+        << "--chunk-x N, --chunk-z N: center chunk (default 0, 0).\n"
         << "--chunks N: N x N area around the selected chunk (default 8, range 1..16).\n"
-        << "--threads N: terrain and smooth-mesh workers (default up to 8, range 1..64).\n"
-        << "--voxel: start in voxel mode; with --headless, build only the voxel mesh.\n"
-        << "--terrain-only: skip structure and feature finalization.\n"
-        << "--templates FILE: load a generated Minecraft structure catalog (.mcwc).\n"
-        << "--export FILE.schem: save the generated area as a Sponge schematic (WorldEdit, voxel-viewer).\n"
-        << "WASD + mouse: fly; Space/Ctrl: up/down; Shift: 4x speed.\n";
+        << "--threads N: terrain workers (default up to 8, range 1..64).\n"
+        << "--terrain-only: skip structures and decoration.\n"
+        << "--templates FILE: load an imported structure catalog (.mcwc).\n"
+        << "--export FILE.schem: save the area for WorldEdit or voxel-viewer.\n"
+        << "Without --export, generate and print statistics only.\n";
 }
 
 Options parseOptions(int argc, char** argv) {
@@ -79,17 +66,14 @@ Options parseOptions(int argc, char** argv) {
             printUsage(argv[0]);
             std::exit(0);
         }
-        if (argument == "--headless") {
-            options.headless = true;
-            continue;
-        }
-        if (argument == "--voxel") {
-            options.voxel = true;
-            continue;
-        }
         if (argument == "--terrain-only") {
             options.terrainOnly = true;
             continue;
+        }
+        if (argument != "--seed" && argument != "--chunk-x" && argument != "--chunk-z"
+            && argument != "--chunks" && argument != "--threads" && argument != "--templates"
+            && argument != "--export") {
+            throw std::invalid_argument("Unknown option: " + std::string(argument));
         }
         if (i + 1 >= argc) {
             throw std::invalid_argument("Missing value after " + std::string(argument));
@@ -108,9 +92,10 @@ Options parseOptions(int argc, char** argv) {
         } else if (argument == "--templates") {
             options.templates = value;
         } else if (argument == "--export") {
+            if (value.empty()) {
+                throw std::invalid_argument("--export requires a nonempty path");
+            }
             options.exportPath = value;
-        } else {
-            throw std::invalid_argument("Unknown option: " + std::string(argument));
         }
     }
     if (options.chunks < 1 || options.chunks > 16) {
@@ -119,215 +104,17 @@ Options parseOptions(int argc, char** argv) {
     if (options.threads < 1 || options.threads > 64) {
         throw std::invalid_argument("--threads must be between 1 and 64");
     }
+    // Check in wide arithmetic before calculating the first chunk as an int.
+    // The generator validates its own sampling and dependency halos as well.
     for (const int center : {options.chunkX, options.chunkZ}) {
         const std::int64_t first = static_cast<std::int64_t>(center) - options.chunks / 2;
         const std::int64_t last = first + options.chunks - 1;
-        // Both meshers sample generated neighboring chunks. Terrain generation
-        // itself reserves 512 blocks for carvers, aquifers and sampling halos.
-        if ((first - 1) * 16 < static_cast<std::int64_t>(std::numeric_limits<int>::min()) + 512
-            || (last + 1) * 16 > static_cast<std::int64_t>(std::numeric_limits<int>::max()) - 512) {
+        if (first * 16 < static_cast<std::int64_t>(std::numeric_limits<int>::min()) + 512
+            || last * 16 > static_cast<std::int64_t>(std::numeric_limits<int>::max()) - 512) {
             throw std::invalid_argument("Chunk area is outside the supported integer grid");
         }
     }
     return options;
-}
-
-// Keep display coordinates near the selected chunk, even at large world positions.
-template <typename Mesh, typename Build>
-Mesh buildArea(const Options& options, Build build) {
-    Mesh area;
-    for (int z = 0; z < options.chunks; ++z) {
-        for (int x = 0; x < options.chunks; ++x) {
-            const int dx = x - options.chunks / 2;
-            const int dz = z - options.chunks / 2;
-            Mesh chunk = build(options.chunkX + dx, options.chunkZ + dz);
-            if (area.vertices.empty() && !chunk.vertices.empty()) {
-                area.vertices.reserve(
-                    chunk.vertices.size() * static_cast<std::size_t>(options.chunks) * options.chunks
-                );
-            }
-            for (auto& vertex : chunk.vertices) {
-                vertex.x += static_cast<float>(dx * 16);
-                vertex.z += static_cast<float>(dz * 16);
-            }
-            area.vertices.insert(area.vertices.end(), chunk.vertices.begin(), chunk.vertices.end());
-            if constexpr (requires { area.solidBlockCount; }) {
-                area.solidBlockCount += chunk.solidBlockCount;
-                area.waterBlockCount += chunk.waterBlockCount;
-                area.lavaBlockCount += chunk.lavaBlockCount;
-            }
-        }
-    }
-    return area;
-}
-
-template <typename Mesh>
-Mesh mergeArea(const Options& options, std::vector<Mesh> chunks) {
-    Mesh area;
-    for (int z = 0; z < options.chunks; ++z) {
-        for (int x = 0; x < options.chunks; ++x) {
-            const int dx = x - options.chunks / 2;
-            const int dz = z - options.chunks / 2;
-            Mesh chunk = std::move(chunks[static_cast<std::size_t>(z) * options.chunks + x]);
-            for (auto& vertex : chunk.vertices) {
-                vertex.x += static_cast<float>(dx * 16);
-                vertex.z += static_cast<float>(dz * 16);
-            }
-            area.vertices.insert(area.vertices.end(), chunk.vertices.begin(), chunk.vertices.end());
-        }
-    }
-    return area;
-}
-
-// --- Presentation ----------------------------------------------------------
-
-// Viewer framing and window chrome.
-constexpr int kWindowWidth = 1280;
-constexpr int kWindowHeight = 800;
-constexpr int kTargetFps = 60;
-constexpr float kCameraFovY = 55.0F;
-constexpr float kCameraHeightAboveTerrain = 35.0F;
-constexpr Color kBackground{12, 18, 27, 255};
-constexpr Color kWireframe{150, 220, 210, 255};
-constexpr Color kChunkBounds{70, 120, 130, 100};
-
-// Start above and outside the area's highest surface, looking toward its center.
-Camera3D framingCamera(const viewer::SmoothTerrainMesh& surface, int chunks) {
-    const auto highest = std::max_element(
-        surface.vertices.begin(), surface.vertices.end(),
-        [](const viewer::VoxelVertex& a, const viewer::VoxelVertex& b) { return a.y < b.y; }
-    );
-
-    Camera3D camera{};
-    const float center = static_cast<float>(chunks * 8 - (chunks / 2) * 16);
-    const float distance = std::max(34.0F, chunks * 16.0F);
-    camera.position = {center + distance, highest->y + kCameraHeightAboveTerrain + distance * 0.35F,
-                       center + distance};
-    camera.target = {center, highest->y, center};
-    camera.up = {0.0F, 1.0F, 0.0F};
-    camera.fovy = kCameraFovY;
-    camera.projection = CAMERA_PERSPECTIVE;
-    return camera;
-}
-
-void drawOverlay(
-    const Options& options,
-    const viewer::SmoothTerrainMesh& surface,
-    const viewer::VoxelMesh& voxels,
-    double generationSeconds,
-    double surfaceSeconds,
-    double voxelSeconds,
-    bool voxelMode,
-    bool wireframe,
-    bool faithfulTextures
-) {
-    DrawRectangle(18, 18, 940, 140, {5, 9, 15, 205});
-    DrawText(
-        TextFormat(
-            "Seed %lld  |  Center chunk %d, %d  |  %d x %d chunks",
-            static_cast<long long>(options.seed), options.chunkX, options.chunkZ, options.chunks, options.chunks
-        ),
-        32, 30, 21, RAYWHITE
-    );
-    DrawText(
-        TextFormat("World: %.2f s  |  Smooth: %zu triangles / %.2f s  |  Voxels: %zu faces / %.2f s",
-                   generationSeconds, surface.triangleCount(), surfaceSeconds,
-                   voxels.faceCount(), voxelSeconds),
-        32, 58, 18, {150, 205, 200, 255}
-    );
-    DrawText(TextFormat("View: %s%s  |  %zu solid / %zu water / %zu lava blocks",
-                        voxelMode ? "voxel blocks" : "smooth terrain", wireframe ? " wireframe" : "",
-                        voxels.solidBlockCount, voxels.waterBlockCount, voxels.lavaBlockCount),
-             32, 84, 18, RAYWHITE);
-    DrawText("V: mesh/voxel | F: wireframe | WASD + mouse: fly | Shift: boost | TAB: cursor",
-              32, 111, 16, {132, 151, 166, 255});
-    DrawText(
-        faithfulTextures
-            ? (options.terrainOnly
-                ? "Space/Ctrl: up/down | Faithful 32x textures | Stage 6 + 7A/7B terrain"
-                : "Space/Ctrl: up/down | Faithful 32x textures | Stages 5-8 worldgen")
-            : (options.terrainOnly
-                ? "Space/Ctrl: up/down | Generated fallback textures | Stage 6 + 7A/7B terrain"
-                : "Space/Ctrl: up/down | Generated fallback textures | Stages 5-8 worldgen"),
-        32, 134, 14, {117, 148, 139, 255}
-    );
-    DrawFPS(GetScreenWidth() - 96, 20);
-}
-
-void runViewer(
-    const Options& options,
-    const viewer::SmoothTerrainMesh& surface,
-    const viewer::VoxelMesh& voxels,
-    double generationSeconds,
-    double surfaceSeconds,
-    double voxelSeconds
-) {
-    SetTraceLogLevel(LOG_NONE);
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-    InitWindow(kWindowWidth, kWindowHeight, "Minecraft 26.3 Overworld terrain");
-    if (!IsWindowReady()) {
-        throw std::runtime_error("Could not initialize the viewer window");
-    }
-    SetTargetFPS(kTargetFps);
-    DisableCursor();
-
-    Model smoothModel = LoadModelFromMesh(viewer::uploadSmoothTerrainMesh(surface));
-    Model voxelModel = LoadModelFromMesh(viewer::uploadVoxelMesh(voxels));
-    const viewer::TerrainTextureAtlas atlas = viewer::loadTerrainTextureAtlas();
-    SetMaterialTexture(&smoothModel.materials[0], MATERIAL_MAP_DIFFUSE, atlas.texture);
-    SetMaterialTexture(&voxelModel.materials[0], MATERIAL_MAP_DIFFUSE, atlas.texture);
-    Camera3D camera = framingCamera(surface, options.chunks);
-    bool wireframe = false;
-    bool voxelMode = options.voxel;
-
-    while (!WindowShouldClose()) {
-        if (IsKeyPressed(KEY_F)) {
-            wireframe = !wireframe;
-        }
-        if (IsKeyPressed(KEY_V)) {
-            voxelMode = !voxelMode;
-        }
-        if (IsKeyPressed(KEY_TAB)) {
-            IsCursorHidden() ? EnableCursor() : DisableCursor();
-        }
-        // Camera input pauses while the cursor is released.
-        if (IsCursorHidden()) {
-            const float speed = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? 160.0F : 40.0F;
-            Vector3 movement{
-                static_cast<float>(IsKeyDown(KEY_W) - IsKeyDown(KEY_S)),
-                static_cast<float>(IsKeyDown(KEY_D) - IsKeyDown(KEY_A)),
-                static_cast<float>(IsKeyDown(KEY_SPACE) - IsKeyDown(KEY_LEFT_CONTROL))
-            };
-            movement = Vector3Scale(Vector3Normalize(movement), speed * GetFrameTime());
-            const Vector2 mouse = GetMouseDelta();
-            UpdateCameraPro(&camera, movement, {mouse.x * 0.1F, mouse.y * 0.1F, 0.0F}, 0.0F);
-        }
-
-        BeginDrawing();
-        ClearBackground(kBackground);
-        BeginMode3D(camera);
-        const Model& model = voxelMode ? voxelModel : smoothModel;
-        if (wireframe) {
-            DrawModelWires(model, {0.0F, 0.0F, 0.0F}, 1.0F, kWireframe);
-        } else {
-            DrawModel(model, {0.0F, 0.0F, 0.0F}, 1.0F, WHITE);
-        }
-        DrawGrid(std::max(4, options.chunks * 2), 16.0F);
-        const float low = static_cast<float>(-(options.chunks / 2) * 16);
-        const float high = low + options.chunks * 16.0F;
-        DrawBoundingBox({{low, -64.0F, low}, {high, 320.0F, high}}, kChunkBounds);
-        EndMode3D();
-        drawOverlay(
-            options, surface, voxels, generationSeconds, surfaceSeconds, voxelSeconds,
-            voxelMode, wireframe, atlas.faithful
-        );
-        EndDrawing();
-    }
-
-    UnloadModel(voxelModel);
-    UnloadModel(smoothModel);
-    UnloadTexture(atlas.texture);
-    CloseWindow();
 }
 
 } // namespace
@@ -335,114 +122,59 @@ void runViewer(
 int main(int argc, char** argv) {
     try {
         const Options options = parseOptions(argc, argv);
-
         const mcworld::OverworldNoiseRouter router(options.seed);
         mcworld::GenerationOptions generation;
         generation.terrainThreads = options.threads;
+        generation.structures = !options.terrainOnly;
+        generation.features = !options.terrainOnly;
         if (!options.templates.empty() && !options.terrainOnly) {
             generation.templates = mcworld::loadStructureTemplateCatalog(options.templates);
             std::cout << "structure_templates=" << generation.templates->templates.size()
                       << " template_pools=" << generation.templates->pools.size()
                       << " unsupported_asset_semantics=" << generation.templates->unsupported.size() << '\n';
         }
-        viewer::VoxelTerrain terrain(router, generation);
+        mcworld::OverworldWorldGenerator generator(router, generation);
+        mcworld::GenerationProfile profile;
+        const auto started = std::chrono::steady_clock::now();
+        const auto area = generator.generateArea(
+            options.chunkX - options.chunks / 2, options.chunkZ - options.chunks / 2,
+            options.chunks, options.chunks, profile);
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        std::cout << "world_generation=" << seconds << "s stage5=" << profile.stage5Seconds
+                  << "s terrain=" << profile.terrainSeconds << "s decoration=" << profile.decorationSeconds
+                  << "s harvest=" << profile.harvestSeconds << "s terrain_chunks=" << profile.terrainChunkCount
+                  << " decoration_chunks=" << profile.decorationChunkCount
+                  << " output_chunks=" << profile.outputChunkCount << '\n';
+        const auto& detail = profile.terrainDetail;
+        std::cout << "terrain_profile=biomes:" << detail.biomeSeconds
+                  << "s density_aquifers:" << detail.densitySeconds << "s materials:" << detail.materialSeconds
+                  << "s carvers:" << detail.carverSeconds << "s heightmaps:" << detail.heightmapSeconds
+                  << "s fluid_cleanup:" << detail.fluidSeconds << "s chunks:" << detail.chunkCount << '\n';
 
-        const int firstChunkX = options.chunkX - options.chunks / 2;
-        const int firstChunkZ = options.chunkZ - options.chunks / 2;
-        std::optional<mcworld::GenerationProfile> generationProfile;
-        const auto generationStarted = std::chrono::steady_clock::now();
-        // Mesh extraction reads one neighboring chunk, so generate the full
-        // halo before measuring either mesher.
-        if (options.terrainOnly) {
-            terrain.prepareTerrainArea(
-                firstChunkX - 1, firstChunkZ - 1, options.chunks + 2, options.chunks + 2
-            );
-        } else {
-            generationProfile = terrain.prepareArea(
-                firstChunkX - 1, firstChunkZ - 1, options.chunks + 2, options.chunks + 2
-            );
-        }
-        const double generationSeconds =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - generationStarted).count();
-        std::cout << "world_generation=" << generationSeconds << 's';
-        if (generationProfile) {
-            std::cout << " stage5=" << generationProfile->stage5Seconds << 's'
-                      << " terrain=" << generationProfile->terrainSeconds << 's'
-                      << " decoration=" << generationProfile->decorationSeconds << 's'
-                      << " harvest=" << generationProfile->harvestSeconds << 's'
-                      << " terrain_chunks=" << generationProfile->terrainChunkCount
-                      << " decoration_chunks=" << generationProfile->decorationChunkCount
-                      << " output_chunks=" << generationProfile->outputChunkCount;
-            const auto& terrainProfile = generationProfile->terrainDetail;
-            std::cout << '\n'
-                      << "terrain_profile="
-                      << "biomes:" << terrainProfile.biomeSeconds << 's'
-                      << " density_aquifers:" << terrainProfile.densitySeconds << 's'
-                      << " materials:" << terrainProfile.materialSeconds << 's'
-                      << " carvers:" << terrainProfile.carverSeconds << 's'
-                      << " heightmaps:" << terrainProfile.heightmapSeconds << 's'
-                      << " fluid_cleanup:" << terrainProfile.fluidSeconds << 's'
-                      << " chunks:" << terrainProfile.chunkCount;
-        }
-        std::cout << '\n';
-
-        if (!options.exportPath.empty()) {
-            std::vector<const mcworld::TerrainChunk*> chunks;
-            for (int z = 0; z < options.chunks; ++z) {
-                for (int x = 0; x < options.chunks; ++x) {
-                    chunks.push_back(&terrain.chunk(firstChunkX + x, firstChunkZ + z));
+        std::size_t solid = 0, water = 0, lava = 0;
+        std::vector<const mcworld::TerrainChunk*> chunks;
+        for (const auto& chunk : area.chunks) {
+            chunks.push_back(&chunk.terrain);
+            for (const auto block : chunk.terrain.blocks) {
+                if (block == mcworld::Block::Water) {
+                    ++water;
+                } else if (block == mcworld::Block::Lava) {
+                    ++lava;
+                } else if (block != mcworld::Block::Air) {
+                    ++solid;
                 }
             }
-            mcworld::writeSpongeSchematic(options.exportPath, chunks, options.chunks, options.chunks);
+        }
+        std::cout << "seed=" << options.seed << " chunk=(" << options.chunkX << ',' << options.chunkZ
+                  << ") chunks=" << options.chunks << 'x' << options.chunks
+                  << " solid_blocks=" << solid << " water_blocks=" << water << " lava_blocks=" << lava << '\n';
+        if (!options.exportPath.empty()) {
+            mcworld::writeSpongeSchematic(options.exportPath, chunks, area.width, area.depth);
             std::cout << "exported_schematic=" << options.exportPath << '\n';
         }
-
-        viewer::SmoothTerrainMesh surface;
-        double surfaceSeconds = 0.0;
-        if (!options.headless || !options.voxel) {
-            const auto surfaceStarted = std::chrono::steady_clock::now();
-            surface = mergeArea(options, terrain.buildSmoothArea(
-                firstChunkX, firstChunkZ, options.chunks, options.chunks, options.threads
-            ));
-            surfaceSeconds =
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - surfaceStarted).count();
-
-            std::cout << "seed=" << options.seed
-                      << " chunk=(" << options.chunkX << ',' << options.chunkZ << ')'
-                      << " chunks=" << options.chunks << 'x' << options.chunks
-                      << " mesh_triangles=" << surface.triangleCount()
-                      << " meshing=" << surfaceSeconds << "s\n";
-
-            if (surface.vertices.empty()) {
-                std::cerr << "The selected area produced no terrain surface.\n";
-                return 2;
-            }
-        }
-
-        viewer::VoxelMesh voxels;
-        double voxelSeconds = 0.0;
-        if (!options.headless || options.voxel) {
-            const auto voxelStarted = std::chrono::steady_clock::now();
-            voxels = buildArea<viewer::VoxelMesh>(options, [&](int x, int z) {
-                return terrain.buildMesh(x, z);
-            });
-            voxelSeconds =
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - voxelStarted).count();
-            std::cout << "solid_blocks=" << voxels.solidBlockCount
-                      << " water_blocks=" << voxels.waterBlockCount
-                      << " lava_blocks=" << voxels.lavaBlockCount
-                      << " voxel_faces=" << voxels.faceCount()
-                      << " meshing=" << voxelSeconds << "s\n";
-        }
-
-        if (options.headless) {
-            return 0;
-        }
-
-        runViewer(options, surface, voxels, generationSeconds, surfaceSeconds, voxelSeconds);
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "terrain_viewer: " << error.what() << '\n';
+        std::cerr << "terrain_gen: " << error.what() << '\n';
         return 1;
     }
 }
