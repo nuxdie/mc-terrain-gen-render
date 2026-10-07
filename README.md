@@ -325,3 +325,9 @@ and jigsaw-junction density.
 
 `tests/generation_cli_tests.py` checks CLI validation, terrain-only/finalized
 exports, schematic contents, and deterministic exports across worker counts.
+
+## Status: closed (2026-10)
+Part of **OpenSkyRPG**: my attempt (Aug–Sep 2026) at a deep 3D RPG of my own, after Morrowind felt antiquated and
+Skyrim felt wide as an ocean and deep as a puddle. This is the Minecraft worldgen port that fed it.
+The project's answer: a Skyrim-scale RPG isn't buildable by one person + AI. Closed; not maintained. The world
+generation, GPU water and voxel viewing parts are reusable.
